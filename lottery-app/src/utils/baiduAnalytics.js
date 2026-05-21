@@ -6,6 +6,22 @@
 const BAIDU_TONGJI_ID = import.meta.env.VITE_BAIDU_TONGJI_ID || 'xxxxxxxx';
 
 /**
+ * 检测当前运行环境
+ * @returns {string} 'apk' | 'web'
+ */
+export const getPlatform = () => {
+  // Capacitor APP 环境检测
+  if (window.Capacitor || window.capacitor) {
+    return 'apk';
+  }
+  // 其他 WebView 环境检测
+  if (navigator.userAgent.includes('Capacitor') || navigator.userAgent.includes('cordova')) {
+    return 'apk';
+  }
+  return 'web';
+};
+
+/**
  * 初始化百度统计
  */
 export const initBaiduTongji = () => {
@@ -23,6 +39,10 @@ export const initBaiduTongji = () => {
   
   // 追踪页面浏览
   window._hmt.push(['_setAutoPageview', true]);
+  
+  // 记录平台信息（用于自定义维度）
+  const platform = getPlatform();
+  console.log(`[百度统计] 当前平台: ${platform.toUpperCase()}`);
 };
 
 /**
@@ -34,7 +54,10 @@ export const initBaiduTongji = () => {
  */
 export const trackEvent = (category, action, label = '', value = 0) => {
   if (window._hmt) {
-    window._hmt.push(['_trackEvent', category, action, label, value]);
+    // 自动添加平台标识
+    const platform = getPlatform();
+    const fullLabel = label ? `${label} [${platform}]` : `[${platform}]`;
+    window._hmt.push(['_trackEvent', category, action, fullLabel, value]);
   }
 };
 

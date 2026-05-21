@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Netlify 部署指南 - 彩票分析器</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 
+                         'Microsoft YaHei', sans-serif;
+            line-height: 1.8;
+            color: #333;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+        }
+
+        header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 40px;
+            text-align: center;
+        }
+
+        header h1 {
+            font-size: 2em;
+            margin-bottom: 10px;
+        }
+
+        header p {
+            font-size: 1.1em;
+            opacity: 0.9;
+        }
+
+        .content {
+            padding: 40px;
+        }
+
+        .quick-start {
+            background: #f0f9eb;
+            border-left: 4px solid #67c23a;
+            padding: 20px;
+            margin-bottom: 30px;
+            border-radius: 6px;
+        }
+
+        .quick-start h2 {
+            color: #67c23a;
+            margin-bottom: 15px;
+            font-size: 1.3em;
+        }
+
+        .quick-start ol {
+            padding-left: 20px;
+        }
+
+        .quick-start li {
+            margin: 10px 0;
+        }
+
+        .quick-start code {
+            background: #fff;
+            padding: 2px 8px;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+            color: #e6a23c;
+            font-weight: bold;
+        }
+
+        .section {
+            margin-bottom: 35px;
+        }
+
+        .section h2 {
+            color: #409eff;
+            font-size: 1.5em;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #ebeef5;
+        }
+
+        .section h3 {
+            color: #303133;
+            font-size: 1.2em;
+            margin: 25px 0 15px 0;
+        }
+
+        .section ol,
+        .section ul {
+            padding-left: 25px;
+            margin: 15px 0;
+        }
+
+        .section li {
+            margin: 10px 0;
+        }
+
+        .section code {
+            background: #f5f7fa;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+            color: #e6a23c;
+        }
+
+        .section a {
+            color: #409eff;
+            text-decoration: none;
+            font-weight: 500;
+        }
+
+        .section a:hover {
+            text-decoration: underline;
+        }
+
+        .highlight-box {
+            background: #fdf6ec;
+            border: 1px solid #faecd8;
+            padding: 15px 20px;
+            border-radius: 6px;
+            margin: 20px 0;
+        }
+
+        .highlight-box strong {
+            color: #e6a23c;
+        }
+
+        .tip-box {
+            background: #ecf5ff;
+            border-left: 4px solid #409eff;
+            padding: 15px 20px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+
+        .tip-box::before {
+            content: "💡 ";
+            font-size: 1.2em;
+        }
+
+        .warning-box {
+            background: #fef0f0;
+            border-left: 4px solid #f56c6c;
+            padding: 15px 20px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+
+        .warning-box::before {
+            content: "⚠️ ";
+            font-size: 1.2em;
+        }
+
+        footer {
+            background: #f5f7fa;
+            padding: 20px;
+            text-align: center;
+            color: #909399;
+            font-size: 0.9em;
+        }
+
+        @media (max-width: 768px) {
+            .content {
+                padding: 20px;
+            }
+
+            header {
+                padding: 30px 20px;
+            }
+
+            header h1 {
+                font-size: 1.6em;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🌐 Netlify 部署指南</h1>
+            <p>将彩票分析器发布到互联网，让所有人都可以访问</p>
+        </header>
+
+        <div class="content">
+            <div class="quick-start">
+                <h2>🚀 快速开始（3步完成）</h2>
+                <ol>
+                    <li>在项目根目录运行：<code>npm run build</code></li>
+                    <li>访问：<a href="https://app.netlify.com/drop" target="_blank">https://app.netlify.com/drop</a></li>
+                    <li>将生成的 <code>dist</code> 文件夹拖拽到网页上即可</li>
+                </ol>
+                <div class="highlight-box">
+                    <strong>✨ 完成！</strong>你将获得一个免费的专属链接（如：xxx.netlify.app），支持全球 CDN 加速和 HTTPS
+                </div>
+            </div>
+
+            <div class="section">
+                <h2>📖 详细部署方法</h2>
+
+                <h3>方法一：拖拽部署（最简单，推荐新手）</h3>
+                <ol>
+                    <li><strong>构建项目</strong>
+                        <ul>
+                            <li>打开命令行，进入项目根目录：<code>cd lottery-app</code></li>
+                            <li>运行构建命令：<code>npm run build</code></li>
+                            <li>等待构建完成，会生成 <code>dist</code> 文件夹</li>
+                        </ul>
+                    </li>
+                    <li><strong>上传到 Netlify</strong>
+                        <ul>
+                            <li>访问 <a href="https://app.netlify.com/drop" target="_blank">Netlify Drop</a></li>
+                            <li>用文件管理器打开项目的 <code>dist</code> 文件夹</li>
+                            <li>将整个 <code>dist</code> 文件夹拖拽到网页上的虚线框内</li>
+                        </ul>
+                    </li>
+                    <li><strong>获取访问链接</strong>
+                        <ul>
+                            <li>等待几秒钟，Netlify 会自动部署</li>
+                            <li>部署完成后会显示访问链接（如：https://random-name.netlify.app）</li>
+                            <li>点击链接即可访问你的应用</li>
+                        </ul>
+                    </li>
+                    <li><strong>自定义域名（可选）</strong>
+                        <ul>
+                            <li>在 Netlify 控制台点击 "Site settings"</li>
+                            <li>找到 "Change site name" 选项</li>
+                            <li>输入你想要的名称（如：lottery-analyzer）</li>
+                            <li>保存后访问链接变为：https://lottery-analyzer.netlify.app</li>
+                        </ul>
+                    </li>
+                </ol>
+
+                <div class="tip-box">
+                    这种方法无需注册账号，适合快速测试和分享。但建议注册账号以便管理多个项目。
+                </div>
+
+                <h3>方法二：Git 部署（推荐，支持自动更新）</h3>
+                <ol>
+                    <li><strong>准备 Git 仓库</strong>
+                        <ul>
+                            <li>将项目推送到 GitHub、GitLab 或 Bitbucket</li>
+                            <li>如果没有 Git 仓库，先初始化：<code>git init</code></li>
+                            <li>添加所有文件：<code>git add .</code></li>
+                            <li>提交代码：<code>git commit -m "initial commit"</code></li>
+                            <li>创建远程仓库并推送</li>
+                        </ul>
+                    </li>
+                    <li><strong>连接 Netlify</strong>
+                        <ul>
+                            <li>访问 <a href="https://app.netlify.com/start" target="_blank">Netlify</a> 并注册/登录</li>
+                            <li>点击 "New site from Git"</li>
+                            <li>选择你的 Git 服务商（GitHub/GitLab/Bitbucket）</li>
+                            <li>授权 Netlify 访问你的仓库</li>
+                            <li>选择要部署的项目</li>
+                        </ul>
+                    </li>
+                    <li><strong>配置部署选项</strong>
+                        <ul>
+                            <li>Branch to deploy: 选择 <code>main</code> 或 <code>master</code></li>
+                            <li>Build command: 输入 <code>npm run build</code></li>
+                            <li>Publish directory: 输入 <code>dist</code></li>
+                            <li>点击 "Deploy site"</li>
+                        </ul>
+                    </li>
+                    <li><strong>享受自动部署</strong>
+                        <ul>
+                            <li>每次推送到主分支，Netlify 会自动重新构建和部署</li>
+                            <li>可以在 Netlify 控制台查看部署历史和日志</li>
+                            <li>支持回滚到之前的版本</li>
+                        </ul>
+                    </li>
+                </ol>
+
+                <div class="tip-box">
+                    Git 部署的优势：代码更新后自动部署，无需手动操作，适合长期维护的项目。
+                </div>
+            </div>
+
+            <div class="section">
+                <h2>⚙️ 高级配置</h2>
+
+                <h3>自定义域名</h3>
+                <ol>
+                    <li>在 Netlify 控制台进入 "Domain settings"</li>
+                    <li>点击 "Add custom domain"</li>
+                    <li>输入你的域名（如：lottery.example.com）</li>
+                    <li>按照提示配置 DNS 记录（通常是 CNAME 记录）</li>
+                    <li>等待 DNS 生效（通常几分钟到几小时）</li>
+                    <li>Netlify 会自动配置 HTTPS 证书</li>
+                </ol>
+
+                <h3>环境变量</h3>
+                <p>如果你的应用需要 API 密钥等敏感信息：</p>
+                <ol>
+                    <li>在 Netlify 控制台进入 "Site settings" → "Environment variables"</li>
+                    <li>点击 "Add a variable"</li>
+                    <li>添加变量名和值</li>
+                    <li>重新部署使配置生效</li>
+                </ol>
+
+                <h3>重定向规则</h3>
+                <p>项目已包含 <code>netlify.toml</code> 配置文件，确保 SPA 路由正常工作。</p>
+            </div>
+
+            <div class="section">
+                <h2>📊 免费套餐说明</h2>
+                <ul>
+                    <li><strong>带宽：</strong>每月 100GB</li>
+                    <li><strong>构建时长：</strong>每月 300 分钟</li>
+                    <li><strong>网站数量：</strong>无限</li>
+                    <li><strong>HTTPS：</strong>免费提供</li>
+                    <li><strong>CDN：</strong>全球加速</li>
+                    <li><strong>自定义域名：</strong>支持</li>
+                </ul>
+
+                <div class="warning-box">
+                    对于个人项目和小规模应用，免费套餐完全够用。如果流量超过限制，可以考虑升级到付费套餐。
+                </div>
+            </div>
+
+            <div class="section">
+                <h2>❓ 常见问题</h2>
+
+                <h3>Q: 为什么我的页面刷新后出现 404？</h3>
+                <p>A: 这是 SPA（单页应用）的正常现象。项目已配置 <code>netlify.toml</code> 文件，确保所有路由都指向 index.html。如果仍有问题，检查该文件是否存在。</p>
+
+                <h3>Q: 如何更新已部署的网站？</h3>
+                <p>A: 
+                    <ul>
+                        <li>拖拽部署：重新拖拽新的 dist 文件夹覆盖</li>
+                        <li>Git 部署：推送新代码到主分支，自动触发部署</li>
+                    </ul>
+                </p>
+
+                <h3>Q: 数据会保存在哪里？</h3>
+                <p>A: 当前版本的数据保存在每个用户的浏览器本地（localStorage）。不同用户之间不共享数据。如果需要云端同步，需要额外开发后端服务。</p>
+
+                <h3>Q: 可以绑定自己的域名吗？</h3>
+                <p>A: 可以！在 Domain settings 中添加自定义域名，并按照指引配置 DNS 记录即可。</p>
+
+                <h3>Q: 部署失败怎么办？</h3>
+                <p>A: 
+                    <ul>
+                        <li>检查构建命令是否正确（应该是 <code>npm run build</code>）</li>
+                        <li>确认发布目录是 <code>dist</code></li>
+                        <li>查看部署日志，查找错误信息</li>
+                        <li>确保项目根目录有 <code>package.json</code> 文件</li>
+                    </ul>
+                </p>
+            </div>
+
+            <div class="section">
+                <h2>🔗 相关资源</h2>
+                <ul>
+                    <li><a href="https://docs.netlify.com/" target="_blank">Netlify 官方文档</a></li>
+                    <li><a href="https://app.netlify.com/" target="_blank">Netlify 控制台</a></li>
+                    <li><a href="https://www.netlify.com/pricing/" target="_blank">价格方案</a></li>
+                    <li><a href="https://community.netlify.com/" target="_blank">社区论坛</a></li>
+                </ul>
+            </div>
+        </div>
+
+        <footer>
+            <p>📅 最后更新：2026年5月 | 💻 彩票分析器项目文档</p>
+        </footer>
+    </div>
+</body>
+</html>

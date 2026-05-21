@@ -1,14 +1,20 @@
 # 依赖
 node_modules/
+lottery-app/node_modules/
 
 # 环境变量（重要！不要上传）
 .env
 .env.local
 .env.production
+lottery-app/.env
+lottery-app/.env.local
+lottery-app/.env.production
 
 # 构建输出
 dist/
+lottery-app/dist/
 build/
+lottery-app/build/
 
 # 系统文件
 .DS_Store
@@ -26,10 +32,16 @@ desktop.ini
 __pycache__/
 *.pyo
 .pytest_cache/
+lottery_analyzer.py
 
-# Capacitor
-android/app/src/main/assets/
-ios/App/App/public/
+# Capacitor（不打包 APP 时忽略）
+lottery-app/android/
+lottery-app/ios/
+lottery-app/build-android.bat
+
+# Netlify（已改用 GitHub Pages）
+netlify.toml
+deploy-netlify.bat
 
 # 日志
 npm-debug.log*
@@ -42,3 +54,12 @@ coverage/
 # 临时文件
 *.tmp
 *.temp
+
+# 文档（保留主要的 README）
+DEPLOYMENT.md
+GITHUB-PAGES-DEPLOY.md
+ANALYTICS.md
+BAIDU-ANALYTICS.md
+QUICK-START-ANALYTICS.md
+快速配置-百度统计.md
+DEPLOY.md

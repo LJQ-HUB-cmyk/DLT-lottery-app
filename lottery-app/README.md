@@ -1,8 +1,22 @@
-# React + Vite
+# 发财大计 - 智能彩票预测
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+基于多种算法模型的彩票号码预测工具。
 
-Currently, two official plugins are available:
+## 功能特性
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react/README.md) uses [Babel](https://babeljs.io/) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+- 🔮 9 种预测算法模型
+- 📊 数据统计分析
+-  一键复制结果
+- 💾 保存历史记录
+- 🎨 全屏水印保护
+
+## 运行项目
+
+```bash
+npm install
+npm run dev
+```
+
+## 部署
+
+项目已配置 GitHub Actions 自动部署，推送代码到 main 分支即可自动部署。

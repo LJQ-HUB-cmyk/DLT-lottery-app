@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import LotteryAnalyzer from './utils/lotteryLogic';
-import { initBaiduTongji, trackNumberGeneration, trackCopy, trackSave, trackDataUpdate, trackModelSelection } from './utils/baiduAnalytics';
+import { trackNumberGeneration, trackCopy, trackSave, trackDataUpdate, trackModelSelection } from './utils/baiduAnalytics';
 import './App.css';
 
 const defaultData = `07 09 23 27 32 02 08
@@ -95,8 +95,6 @@ function App() {
   const [copySuccess, setCopySuccess] = useState(false);
 
   useEffect(() => {
-    // 初始化百度统计
-    initBaiduTongji();
     loadData();
   }, []);
 

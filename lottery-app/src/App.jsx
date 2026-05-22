@@ -94,6 +94,7 @@ function App() {
   const [showHistory, setShowHistory] = useState(false);
   const [groupsPerModel, setGroupsPerModel] = useState(5);
   const [copySuccess, setCopySuccess] = useState(false);
+  const [isLoadingLatest, setIsLoadingLatest] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -115,6 +116,60 @@ function App() {
   const clearCache = () => {
     localStorage.removeItem('lottery_data');
     setDataInput(defaultData);
+  };
+
+  // 获取最新一期开奖号码
+  const fetchLatestDraw = async () => {
+    setIsLoadingLatest(true);
+    try {
+      // 使用免费API获取大乐透最新开奖
+      const response = await fetch('https://api.api77.com/ltt/openinfo.do?format=json');
+      const data = await response.json();
+      
+      if (data && data.data && data.data.length > 0) {
+        const latest = data.data[0];
+        const frontNums = latest.qian.split(',').map(n => parseInt(n));
+        const backNums = latest.hou.split(',').map(n => parseInt(n));
+        const newLine = `${frontNums.map(n => n.toString().padStart(2, '0')).join(' ')} ${backNums.map(n => n.toString().padStart(2, '0')).join(' ')}`;
+        
+        // 添加到数据开头
+        const lines = dataInput.trim().split('\n').filter(line => line.trim());
+        
+        // 检查是否已存在
+        const exists = lines.some(line => line.trim() === newLine.trim());
+        if (!exists) {
+          lines.unshift(newLine);
+          
+          // 保持最多100条
+          if (lines.length > 100) {
+            lines.pop(); // 移除最旧的一条
+          }
+          
+          const newData = lines.join('\n');
+          setDataInput(newData);
+          
+          // 自动更新分析
+          analyzer.loadHistoryData(newData, "用户数据");
+          const hotCold = analyzer.getHotColdNumbers();
+          const [expFront, expBack] = analyzer.calculateExpectedValue();
+          const variance = analyzer.calculateVariance();
+          const sumProb = analyzer.calculateSumProbability();
+          setStats({ hotCold, expFront, expBack, variance, sumProb });
+          localStorage.setItem('lottery_data', newData);
+          
+          alert(`✅ 成功获取最新一期：${latest.expect}\n${newLine}`);
+        } else {
+          alert('ℹ️ 最新一期已在历史记录中');
+        }
+      } else {
+        alert('❌ 获取失败，请稍后重试');
+      }
+    } catch (error) {
+      console.error('获取开奖号码失败:', error);
+      alert('❌ 网络错误，请检查网络连接');
+    } finally {
+      setIsLoadingLatest(false);
+    }
   };
 
   const handleGenerate = () => {
@@ -371,8 +426,21 @@ function App() {
             onChange={(e) => setDataInput(e.target.value)}
             placeholder="或者在这里批量粘贴历史数据..."
           />
-          <button onClick={loadData} className="secondary">更新分析</button>
-          <button onClick={clearCache} className="secondary" style={{backgroundColor: '#909399'}}>重置数据</button>
+          <div className="button-group">
+            <button 
+              onClick={fetchLatestDraw} 
+              className="secondary" 
+              style={{
+                backgroundColor: isLoadingLatest ? '#909399' : '#67c23a',
+                boxShadow: '0 2px 4px rgba(103, 194, 58, 0.3)'
+              }}
+              disabled={isLoadingLatest}
+            >
+              {isLoadingLatest ? '获取中...' : '🔄 获取最新一期'}
+            </button>
+            <button onClick={loadData} className="secondary">更新分析</button>
+            <button onClick={clearCache} className="secondary" style={{backgroundColor: '#909399'}}>重置数据</button>
+          </div>
         </section>
 
         <section className="card">

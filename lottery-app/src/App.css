@@ -873,3 +873,16 @@ button.success {
   color: white;
   border-color: #f56c6c;
 }
+
+/* 按钮组 */
+.button-group {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+
+.button-group button {
+  flex: 1;
+  min-width: 120px;
+}

@@ -68,16 +68,32 @@ if %errorlevel% neq 0 (
     exit /b 1
 )
 
-echo [6/6] 打包完成！
+echo [6/6] Build completed!
 cd ..
+
+REM Get APK path
+set APK_PATH=%cd%\android\app\build\outputs\apk\debug\
 
 echo.
 echo ========================================
-echo    APK 文件位置：
-echo    android\app\build\outputs\apk\debug\发财大计.apk
+echo    APK Build Successful!
 echo ========================================
 echo.
-echo 提示：这是测试版 APK，可直接安装到手机
-echo 如需正式版（签名版），请使用 assembleRelease
+echo APK Location:
+echo %APK_PATH%
+echo.
+echo Files in directory:
+dir "%APK_PATH%*.apk" /b
+echo.
+echo ========================================
+echo.
+echo Tip: This is a debug APK, you can install it directly to your phone
+echo For release version (signed), use: gradlew.bat assembleRelease
+echo.
+
+REM Open the folder automatically
+echo Opening APK folder...
+start "" "%APK_PATH%"
+
 echo.
 pause

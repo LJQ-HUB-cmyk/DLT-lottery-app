@@ -137,16 +137,26 @@ function App() {
     // 优先使用外部数据文件，否则使用 LocalStorage 或默认数据
     let initialData = defaultData;
     
+    console.log('开始加载数据...');
+    console.log('defaultData 行数:', defaultData.trim().split('\n').length);
+    
     // 等待外部数据文件加载
     if (externalDataPromise) {
       try {
         const externalData = await externalDataPromise;
+        console.log('externalData 长度:', externalData ? externalData.length : 0);
+        console.log('externalData 前100字符:', externalData ? externalData.substring(0, 100) : 'null');
+        
         if (externalData && externalData.trim()) {
+          const lines = externalData.trim().split('\n').filter(l => l.trim());
+          console.log('externalData 行数:', lines.length);
           initialData = externalData;
-          console.log('使用外部数据文件');
+          console.log('✅ 使用外部数据文件');
+        } else {
+          console.log('⚠️ externalData 为空');
         }
       } catch (e) {
-        console.log('加载外部数据失败，使用默认数据');
+        console.log('❌ 加载外部数据失败:', e.message);
       }
     }
     
@@ -155,9 +165,16 @@ function App() {
       const saved = localStorage.getItem('lottery_data');
       if (saved) {
         initialData = saved;
-        console.log('从 LocalStorage 加载数据');
+        console.log('✅ 从 LocalStorage 加载数据');
+      } else {
+        console.log('✅ 使用 defaultData');
       }
     }
+    
+    const finalLines = initialData.trim().split('\n').filter(l => l.trim());
+    console.log('最终数据行数:', finalLines.length);
+    console.log('第一行:', finalLines[0]);
+    console.log('最后一行:', finalLines[finalLines.length - 1]);
     
     setDataInput(initialData);
     analyzer.loadHistoryData(initialData, "用户数据");

@@ -37,7 +37,6 @@ lottery_analyzer.py
 # Capacitor（不打包 APP 时忽略）
 lottery-app/android/
 lottery-app/ios/
-lottery-app/build-android.bat
 
 # Netlify（已改用 GitHub Pages）
 netlify.toml

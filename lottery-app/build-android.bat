@@ -5,18 +5,32 @@ echo    彩票分析器 Android APK 打包工具
 echo ========================================
 echo.
 
-REM 设置 Java 环境
-set JAVA_HOME=C:\Program Files\Java\jdk-17
-set PATH=%JAVA_HOME%\bin;%PATH%
+REM 设置 Java 环境 - 自动检测 JDK 17 路径
+set JAVA_FOUND=0
 
-REM 检查 Java
-java -version >nul 2>&1
-if %errorlevel% neq 0 (
-    echo [错误] 未检测到 Java，请先安装 JDK 17
+if exist "C:\Program Files\Java\jdk-17" (
+    set JAVA_HOME=C:\Program Files\Java\jdk-17
+    set JAVA_FOUND=1
+) else if exist "C:\Program Files\Java\jdk-17.*" (
+    for /d %%i in ("C:\Program Files\Java\jdk-17.*") do (
+        set JAVA_HOME=%%i
+        set JAVA_FOUND=1
+        goto :java_found
+    )
+) else if defined JAVA_HOME (
+    REM 使用系统环境变量
+    set JAVA_FOUND=1
+)
+
+:java_found
+if %JAVA_FOUND% equ 0 (
+    echo [错误] 未找到 JDK 17，请先安装 JDK 17
+    echo 下载地址：https://adoptium.net/temurin/releases/?version=17
     pause
     exit /b 1
 )
 
+set PATH=%JAVA_HOME%\bin;%PATH%
 echo [信息] 使用 Java: %JAVA_HOME%
 
 echo [1/5] 构建 Web 资源...
@@ -37,20 +51,39 @@ if %errorlevel% neq 0 (
 
 echo [3/5] 检查 Android SDK...
 if not defined ANDROID_HOME (
-    echo [提示] 未设置 ANDROID_HOME，尝试使用默认路径...
+    echo [提示] 未设置 ANDROID_HOME，尝试查找...
+    
+    REM 尝试常见的 Android SDK 位置
     if exist "%LOCALAPPDATA%\Android\Sdk" (
         set ANDROID_HOME=%LOCALAPPDATA%\Android\Sdk
     ) else if exist "%USERPROFILE%\AppData\Local\Android\Sdk" (
         set ANDROID_HOME=%USERPROFILE%\AppData\Local\Android\Sdk
+    ) else if exist "D:\commandlinetools-win-*" (
+        for /d %%i in ("D:\commandlinetools-win-*") do (
+            set ANDROID_HOME=%%i
+            goto :android_found
+        )
+    ) else if exist "C:\Android\Sdk" (
+        set ANDROID_HOME=C:\Android\Sdk
     ) else (
         echo [错误] 未找到 Android SDK
-        echo 请先安装 Android Studio 或 Android Command Line Tools
-        echo 下载地址：https://developer.android.com/studio#command-tools
+        echo.
+        echo 请设置 ANDROID_HOME 环境变量或安装 Android SDK
+        echo 常见位置：
+        echo   - %%LOCALAPPDATA%%\Android\Sdk (Android Studio 默认)
+        echo   - D:\commandlinetools-win-* (命令行工具)
+        echo   - C:\Android\Sdk
+        echo.
+        echo 设置方法：
+        echo   setx ANDROID_HOME "你的SDK路径"
+        echo.
         pause
         exit /b 1
     )
-    echo [信息] 使用 SDK 路径: %ANDROID_HOME%
 )
+
+:android_found
+echo [信息] 使用 SDK 路径: %ANDROID_HOME%
 
 echo [4/5] 清理构建缓存...
 cd android

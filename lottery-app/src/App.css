@@ -886,3 +886,89 @@ button.success {
   flex: 1;
   min-width: 120px;
 }
+
+/* 最新一期开奖卡片 */
+.latest-draw-card {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border: none;
+}
+
+.latest-draw-card h2 {
+  color: white;
+  margin-bottom: 20px;
+}
+
+.latest-draw-content {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+.draw-info {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-bottom: 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+.draw-period {
+  font-size: 1.2em;
+  font-weight: bold;
+}
+
+.draw-date {
+  font-size: 0.9em;
+  opacity: 0.9;
+}
+
+.draw-numbers {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+.front-zone, .back-zone {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.zone-label {
+  font-weight: bold;
+  min-width: 50px;
+}
+
+.numbers {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.ball {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  font-weight: bold;
+  font-size: 1.1em;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  transition: transform 0.2s;
+}
+
+.ball:hover {
+  transform: scale(1.1);
+}
+
+.front-ball {
+  background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+  color: white;
+}
+
+.back-ball {
+  background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+  color: white;
+}

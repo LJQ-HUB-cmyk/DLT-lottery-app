@@ -4,6 +4,21 @@ import { trackNumberGeneration, trackCopy, trackSave, trackDataUpdate, trackMode
 import AuthGuard from './components/AuthGuard';
 import './App.css';
 
+// 动态导入外部数据文件（如果存在）
+let externalData = '';
+try {
+  // 这个导入会在打包时由 Vite 处理
+  // 如果文件不存在会静默失败
+  import('./data/lottery-history.txt?raw').then(module => {
+    externalData = module.default;
+    console.log('已加载外部数据文件');
+  }).catch(() => {
+    console.log('未找到外部数据文件，使用默认数据');
+  });
+} catch (e) {
+  // 忽略导入错误
+}
+
 const defaultData = `07 09 23 27 32 02 08
 04 08 15 20 31 07 08
 02 09 11 15 16 02 04
@@ -95,19 +110,37 @@ function App() {
   const [groupsPerModel, setGroupsPerModel] = useState(5);
   const [copySuccess, setCopySuccess] = useState(false);
   const [isLoadingLatest, setIsLoadingLatest] = useState(false);
+  const [latestDraw, setLatestDraw] = useState(null); // 最新一期开奖信息
 
   useEffect(() => {
     loadData();
   }, []);
 
   const loadData = () => {
-    analyzer.loadHistoryData(dataInput, "用户数据");
+    // 优先使用外部数据文件，否则使用 LocalStorage 或默认数据
+    let initialData = defaultData;
+    
+    // 如果有外部数据文件且不为空，使用外部数据
+    if (externalData && externalData.trim()) {
+      initialData = externalData;
+      console.log('使用外部数据文件');
+    } else {
+      // 否则尝试从 LocalStorage 加载
+      const saved = localStorage.getItem('lottery_data');
+      if (saved) {
+        initialData = saved;
+        console.log('从 LocalStorage 加载数据');
+      }
+    }
+    
+    setDataInput(initialData);
+    analyzer.loadHistoryData(initialData, "用户数据");
     const hotCold = analyzer.getHotColdNumbers();
     const [expFront, expBack] = analyzer.calculateExpectedValue();
     const variance = analyzer.calculateVariance();
     const sumProb = analyzer.calculateSumProbability();
     setStats({ hotCold, expFront, expBack, variance, sumProb });
-    localStorage.setItem('lottery_data', dataInput);
+    localStorage.setItem('lottery_data', initialData);
     
     // 追踪数据加载
     trackDataUpdate(analyzer.historyData.length);
@@ -118,55 +151,71 @@ function App() {
     setDataInput(defaultData);
   };
 
-  // 获取最新一期开奖号码
+  // 获取最新一期开奖号码（使用中国体彩网官方API）
   const fetchLatestDraw = async () => {
     setIsLoadingLatest(true);
     try {
-      // 使用免费API获取大乐透最新开奖
-      const response = await fetch('https://api.api77.com/ltt/openinfo.do?format=json');
-      const data = await response.json();
+      // 使用Vite代理调用中国体彩网官方API
+      const response = await fetch('/api/lottery?pageNum=1&pageSize=1&systemType=2&lotteryType=dlt');
       
-      if (data && data.data && data.data.length > 0) {
-        const latest = data.data[0];
-        const frontNums = latest.qian.split(',').map(n => parseInt(n));
-        const backNums = latest.hou.split(',').map(n => parseInt(n));
-        const newLine = `${frontNums.map(n => n.toString().padStart(2, '0')).join(' ')} ${backNums.map(n => n.toString().padStart(2, '0')).join(' ')}`;
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
+      const result = await response.json();
+      
+      // 检查数据格式
+      if (result.value === 'fail' || !result.data || !result.data.list || result.data.list.length === 0) {
+        throw new Error('数据格式错误或无数据');
+      }
+      
+      const latest = result.data.list[0];
+      // 解析开奖号码
+      const frontNums = latest.lotteryDrawResult.split(' ').slice(0, 5).map(n => parseInt(n));
+      const backNums = latest.lotteryDrawResult.split(' ').slice(5, 7).map(n => parseInt(n));
+      
+      const newLine = latest.lotteryDrawResult; // 直接使用原始格式 "01 12 15 19 26 04 16"
+      
+      // 设置最新一期显示
+      setLatestDraw({
+        expect: latest.lotteryDrawTerm,
+        front: frontNums,
+        back: backNums,
+        date: latest.lotteryDrawTime
+      });
+      
+      // 添加到数据开头
+      const lines = dataInput.trim().split('\n').filter(line => line.trim());
+      
+      // 检查是否已存在
+      const exists = lines.some(line => line.trim() === newLine.trim());
+      if (!exists) {
+        lines.unshift(newLine);
         
-        // 添加到数据开头
-        const lines = dataInput.trim().split('\n').filter(line => line.trim());
-        
-        // 检查是否已存在
-        const exists = lines.some(line => line.trim() === newLine.trim());
-        if (!exists) {
-          lines.unshift(newLine);
-          
-          // 保持最多100条
-          if (lines.length > 100) {
-            lines.pop(); // 移除最旧的一条
-          }
-          
-          const newData = lines.join('\n');
-          setDataInput(newData);
-          
-          // 自动更新分析
-          analyzer.loadHistoryData(newData, "用户数据");
-          const hotCold = analyzer.getHotColdNumbers();
-          const [expFront, expBack] = analyzer.calculateExpectedValue();
-          const variance = analyzer.calculateVariance();
-          const sumProb = analyzer.calculateSumProbability();
-          setStats({ hotCold, expFront, expBack, variance, sumProb });
-          localStorage.setItem('lottery_data', newData);
-          
-          alert(`✅ 成功获取最新一期：${latest.expect}\n${newLine}`);
-        } else {
-          alert('ℹ️ 最新一期已在历史记录中');
+        // 保持最多100条
+        if (lines.length > 100) {
+          lines.pop(); // 移除最旧的一条
         }
+        
+        const newData = lines.join('\n');
+        setDataInput(newData);
+        
+        // 自动更新分析
+        analyzer.loadHistoryData(newData, "用户数据");
+        const hotCold = analyzer.getHotColdNumbers();
+        const [expFront, expBack] = analyzer.calculateExpectedValue();
+        const variance = analyzer.calculateVariance();
+        const sumProb = analyzer.calculateSumProbability();
+        setStats({ hotCold, expFront, expBack, variance, sumProb });
+        localStorage.setItem('lottery_data', newData);
+        
+        alert(`✅ 成功获取最新一期\n期号：${latest.lotteryDrawTerm}\n号码：${newLine}`);
       } else {
-        alert('❌ 获取失败，请稍后重试');
+        alert('ℹ️ 最新一期已在历史记录中');
       }
     } catch (error) {
       console.error('获取开奖号码失败:', error);
-      alert('❌ 网络错误，请检查网络连接');
+      alert('❌ 获取失败\n\n错误信息：' + error.message + '\n\n建议：手动输入最新一期号码到文本框中');
     } finally {
       setIsLoadingLatest(false);
     }
@@ -375,6 +424,41 @@ function App() {
             </div>
           )}
         </section>
+
+        {/* 最新一期开奖号码 */}
+        {latestDraw && (
+          <section className="card latest-draw-card">
+            <h2>🎯 最新一期开奖</h2>
+            <div className="latest-draw-content">
+              <div className="draw-info">
+                <span className="draw-period">第 {latestDraw.expect} 期</span>
+                {latestDraw.date && <span className="draw-date">{latestDraw.date}</span>}
+              </div>
+              <div className="draw-numbers">
+                <div className="front-zone">
+                  <span className="zone-label">前区</span>
+                  <div className="numbers">
+                    {latestDraw.front.map((num, idx) => (
+                      <span key={idx} className="ball front-ball">
+                        {num.toString().padStart(2, '0')}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+                <div className="back-zone">
+                  <span className="zone-label">后区</span>
+                  <div className="numbers">
+                    {latestDraw.back.map((num, idx) => (
+                      <span key={idx} className="ball back-ball">
+                        {num.toString().padStart(2, '0')}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+        )}
 
         <section className="card">
           <h2>📝 数据管理</h2>

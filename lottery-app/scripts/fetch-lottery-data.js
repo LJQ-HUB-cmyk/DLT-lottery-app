@@ -16,15 +16,115 @@ const __dirname = path.dirname(__filename);
  * 从 API 获取最新开奖数据
  */
 async function fetchFromAPI() {
-  // 由于外部 API 不稳定，这里使用手动维护的方式
-  // GitHub Actions 可以在开奖后手动触发更新
+  // 方案 1：api100.duapp.com (主选)
+  try {
+    console.log('\n[方案1] 正在从 api100.duapp.com 获取数据...');
+    
+    const apiUrl = 'http://api100.duapp.com/lottery/?type=' + encodeURIComponent('大乐透');
+    
+    const response = await fetch(apiUrl);
+    
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    
+    const data = await response.json();
+    
+    if (!data || !data[1] || !data[1].Title) {
+      throw new Error('数据格式错误');
+    }
+    
+    const titleStr = data[1].Title;
+    console.log('  原始数据:', titleStr);
+    
+    // 解析数据
+    const lines = titleStr.split('\n');
+    
+    let expect = '';
+    let date = '';
+    let numbers = '';
+    
+    for (const line of lines) {
+      if (line.includes('第') && line.includes('期')) {
+        const match = line.match(/第(\d+)期/);
+        if (match) expect = match[1];
+      } else if (line.includes('开奖时间')) {
+        date = line.replace('开奖时间：', '').trim();
+      } else if (line.includes('开奖号码')) {
+        numbers = line.replace('开奖号码：', '').trim();
+        numbers = numbers.replace(/-/g, ' ').replace('+', ' ');
+      }
+    }
+    
+    if (!expect || !numbers) {
+      throw new Error('解析失败');
+    }
+    
+    console.log('  ✅ 成功获取数据');
+    console.log('  期号:', expect);
+    console.log('  号码:', numbers);
+    console.log('  日期:', date);
+    
+    return { expect, numbers, date };
+    
+  } catch (error) {
+    console.log('  ❌ 方案1 失败:', error.message);
+  }
   
-  console.log('\n提示：由于外部 API 不稳定，当前采用手动维护方式');
-  console.log('请在以下网站查看最新开奖号码：');
-  console.log('  - 中国体彩网：https://www.lottery.gov.cn/kj/kjlb.html?dlt');
-  console.log('  - 网易彩票：https://sports.163.com/caipiao/lottery/dlt');
-  console.log('\n然后手动编辑 lottery-app/src/data/lottery-history.txt 文件');
-  console.log('在文件第一行添加最新一期数据，格式：01 12 15 19 26 04 16');
+  // 方案 2：api.xinti.com (备用)
+  try {
+    console.log('\n[方案2] 正在从 api.xinti.com 获取数据...');
+    
+    const url = 'https://api.xinti.com/chart/queryPrizeHistoryByGameCode';
+    const params = {
+      ClientSource: 3,
+      Param: { GameCode: 'DLT', IssuseCount: 1 },
+      Date: Date.now(),
+      Token: '',
+      Sign: '4edaf737113b3411911c5b7a2ccd8640'
+    };
+    
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+      },
+      body: JSON.stringify(params)
+    });
+    
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    
+    const data = await response.json();
+    
+    if (!data.Value || !data.Value.GameHistoryInfo || data.Value.GameHistoryInfo.length === 0) {
+      throw new Error('数据格式错误或无数据');
+    }
+    
+    const latest = data.Value.GameHistoryInfo[0];
+    const numbers = latest.WinNumber.replace(/-/g, ' ');
+    
+    console.log('  ✅ 成功获取数据');
+    console.log('  期号:', latest.IssuseNumber);
+    console.log('  号码:', numbers);
+    console.log('  日期:', latest.PrizeTime);
+    
+    return {
+      expect: latest.IssuseNumber,
+      numbers,
+      date: latest.PrizeTime
+    };
+    
+  } catch (error) {
+    console.log('  ❌ 方案2 失败:', error.message);
+  }
+  
+  // 两个方案都失败
+  console.log('\n⚠️  所有 API 都不可用，请手动维护数据');
+  console.log('请访问：https://www.lottery.gov.cn/kj/kjlb.html?dlt');
+  console.log('然后编辑 lottery-app/src/data/lottery-history.txt 文件\n');
   
   return null;
 }

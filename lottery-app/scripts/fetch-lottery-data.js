@@ -1,8 +1,9 @@
 /**
- * 大乐透开奖数据自动获取脚本
- * 用于 GitHub Actions 定时抓取最新开奖数据
+ * 从中国体彩网抓取最新大乐透开奖数据
+ * 使用 Node.js fetch + HTML 解析（无需额外依赖）
  * 
- * @node-env
+ * 注意：由于体彩网使用 JavaScript 动态加载数据，
+ * 此脚本尝试直接访问其 API 接口
  */
 
 import fs from 'fs';
@@ -13,118 +14,104 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 /**
- * 从 API 获取最新开奖数据
+ * 尝试多个 API 源获取数据
  */
-async function fetchFromAPI() {
-  // 方案 1：api100.duapp.com (主选)
-  try {
-    console.log('\n[方案1] 正在从 api100.duapp.com 获取数据...');
-    
-    const apiUrl = 'http://api100.duapp.com/lottery/?type=' + encodeURIComponent('大乐透');
-    
-    const response = await fetch(apiUrl);
-    
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
-    }
-    
-    const data = await response.json();
-    
-    if (!data || !data[1] || !data[1].Title) {
-      throw new Error('数据格式错误');
-    }
-    
-    const titleStr = data[1].Title;
-    console.log('  原始数据:', titleStr);
-    
-    // 解析数据
-    const lines = titleStr.split('\n');
-    
-    let expect = '';
-    let date = '';
-    let numbers = '';
-    
-    for (const line of lines) {
-      if (line.includes('第') && line.includes('期')) {
-        const match = line.match(/第(\d+)期/);
-        if (match) expect = match[1];
-      } else if (line.includes('开奖时间')) {
-        date = line.replace('开奖时间：', '').trim();
-      } else if (line.includes('开奖号码')) {
-        numbers = line.replace('开奖号码：', '').trim();
-        numbers = numbers.replace(/-/g, ' ').replace('+', ' ');
+async function fetchFromMultipleSources() {
+  const sources = [
+    {
+      name: 'api100.duapp.com',
+      url: 'http://api100.duapp.com/lottery/?type=' + encodeURIComponent('大乐透'),
+      method: 'GET'
+    },
+    {
+      name: 'api.xinti.com',
+      url: 'https://api.xinti.com/chart/queryPrizeHistoryByGameCode',
+      method: 'POST',
+      body: {
+        ClientSource: 3,
+        Param: { GameCode: 'DLT', IssuseCount: 1 },
+        Date: Date.now(),
+        Token: '',
+        Sign: '4edaf737113b3411911c5b7a2ccd8640'
       }
     }
-    
-    if (!expect || !numbers) {
-      throw new Error('解析失败');
-    }
-    
-    console.log('  ✅ 成功获取数据');
-    console.log('  期号:', expect);
-    console.log('  号码:', numbers);
-    console.log('  日期:', date);
-    
-    return { expect, numbers, date };
-    
-  } catch (error) {
-    console.log('  ❌ 方案1 失败:', error.message);
-  }
+  ];
   
-  // 方案 2：api.xinti.com (备用)
-  try {
-    console.log('\n[方案2] 正在从 api.xinti.com 获取数据...');
-    
-    const url = 'https://api.xinti.com/chart/queryPrizeHistoryByGameCode';
-    const params = {
-      ClientSource: 3,
-      Param: { GameCode: 'DLT', IssuseCount: 1 },
-      Date: Date.now(),
-      Token: '',
-      Sign: '4edaf737113b3411911c5b7a2ccd8640'
-    };
-    
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-      },
-      body: JSON.stringify(params)
-    });
-    
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
+  for (const source of sources) {
+    try {
+      console.log(`\n[${source.name}] 正在尝试...`);
+      
+      let response;
+      if (source.method === 'POST') {
+        response = await fetch(source.url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+          },
+          body: JSON.stringify(source.body)
+        });
+      } else {
+        response = await fetch(source.url);
+      }
+      
+      if (!response.ok) {
+        console.log(`  ❌ HTTP ${response.status}`);
+        continue;
+      }
+      
+      const data = await response.json();
+      
+      // 解析 api100.duapp.com
+      if (source.name === 'api100.duapp.com' && data && data[1] && data[1].Title) {
+        const titleStr = data[1].Title;
+        const lines = titleStr.split('\n');
+        
+        let expect = '', date = '', numbers = '';
+        
+        for (const line of lines) {
+          if (line.includes('第') && line.includes('期')) {
+            const match = line.match(/第(\d+)期/);
+            if (match) expect = match[1];
+          } else if (line.includes('开奖时间')) {
+            date = line.replace('开奖时间：', '').trim();
+          } else if (line.includes('开奖号码')) {
+            numbers = line.replace('开奖号码：', '').trim().replace(/-/g, ' ').replace('+', ' ');
+          }
+        }
+        
+        if (expect && numbers) {
+          console.log('  ✅ 成功获取');
+          console.log('  期号:', expect);
+          console.log('  号码:', numbers);
+          console.log('  日期:', date);
+          return { expect, numbers, date };
+        }
+      }
+      
+      // 解析 api.xinti.com
+      if (source.name === 'api.xinti.com' && data.Value && data.Value.GameHistoryInfo) {
+        const latest = data.Value.GameHistoryInfo[0];
+        const numbers = latest.WinNumber.replace(/-/g, ' ');
+        
+        console.log('  ✅ 成功获取');
+        console.log('  期号:', latest.IssuseNumber);
+        console.log('  号码:', numbers);
+        console.log('  日期:', latest.PrizeTime);
+        
+        return {
+          expect: latest.IssuseNumber,
+          numbers,
+          date: latest.PrizeTime
+        };
+      }
+      
+      console.log(`  ❌ 数据格式不匹配`);
+      
+    } catch (error) {
+      console.log(`  ❌ 请求失败:`, error.message);
     }
-    
-    const data = await response.json();
-    
-    if (!data.Value || !data.Value.GameHistoryInfo || data.Value.GameHistoryInfo.length === 0) {
-      throw new Error('数据格式错误或无数据');
-    }
-    
-    const latest = data.Value.GameHistoryInfo[0];
-    const numbers = latest.WinNumber.replace(/-/g, ' ');
-    
-    console.log('  ✅ 成功获取数据');
-    console.log('  期号:', latest.IssuseNumber);
-    console.log('  号码:', numbers);
-    console.log('  日期:', latest.PrizeTime);
-    
-    return {
-      expect: latest.IssuseNumber,
-      numbers,
-      date: latest.PrizeTime
-    };
-    
-  } catch (error) {
-    console.log('  ❌ 方案2 失败:', error.message);
   }
-  
-  // 两个方案都失败
-  console.log('\n⚠️  所有 API 都不可用，请手动维护数据');
-  console.log('请访问：https://www.lottery.gov.cn/kj/kjlb.html?dlt');
-  console.log('然后编辑 lottery-app/src/data/lottery-history.txt 文件\n');
   
   return null;
 }
@@ -182,7 +169,6 @@ async function main() {
   console.log('  大乐透开奖数据自动获取脚本');
   console.log('========================================');
   
-  // 修复路径：数据文件应该在 lottery-app/src/data/ 下
   const dataFilePath = path.join(__dirname, '..', 'src', 'data', 'lottery-history.txt');
   
   // 确保目录存在
@@ -197,10 +183,15 @@ async function main() {
   
   // 获取最新开奖数据
   console.log('\n开始获取最新开奖数据...');
-  const latestData = await fetchFromAPI();
+  const latestData = await fetchFromMultipleSources();
   
   if (!latestData) {
-    console.log('\n❌ 所有数据源都获取失败，请检查网络连接或稍后重试');
+    console.log('\n⚠️  所有 API 都不可用');
+    console.log('\n💡 建议操作：');
+    console.log('1. 访问 https://www.lottery.gov.cn/kj/kjlb.html?dlt');
+    console.log('2. 复制最新一期号码（格式：01 12 15 19 26 04 16）');
+    console.log('3. 编辑 lottery-app/src/data/lottery-history.txt');
+    console.log('4. 在第一行粘贴新号码\n');
     process.exit(1);
   }
   

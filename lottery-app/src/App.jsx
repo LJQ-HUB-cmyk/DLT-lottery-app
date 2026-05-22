@@ -109,8 +109,23 @@ function App() {
   const [showHistory, setShowHistory] = useState(false);
   const [groupsPerModel, setGroupsPerModel] = useState(5);
   const [copySuccess, setCopySuccess] = useState(false);
-  const [isLoadingLatest, setIsLoadingLatest] = useState(false);
-  const [latestDraw, setLatestDraw] = useState(null); // 最新一期开奖信息
+
+  // 从数据中获取最后一组（最新一期）号码
+  const getLatestDrawFromData = () => {
+    if (!analyzer.historyData || analyzer.historyData.length === 0) return null;
+    
+    // 最后一组数据是最新的
+    const latestIndex = analyzer.historyData.length - 1;
+    const latest = analyzer.historyData[latestIndex];
+    const front = latest.full.slice(0, 5);
+    const back = latest.full.slice(5, 7);
+    
+    return {
+      front,
+      back,
+      numbers: latest.full
+    };
+  };
 
   useEffect(() => {
     loadData();
@@ -144,82 +159,12 @@ function App() {
     
     // 追踪数据加载
     trackDataUpdate(analyzer.historyData.length);
-  };
-
-  const clearCache = () => {
+  };  const clearCache = () => {
     localStorage.removeItem('lottery_data');
     setDataInput(defaultData);
   };
 
-  // 获取最新一期开奖号码（使用中国体彩网官方API）
-  const fetchLatestDraw = async () => {
-    setIsLoadingLatest(true);
-    try {
-      // 使用Vite代理调用中国体彩网官方API
-      const response = await fetch('/api/lottery?pageNum=1&pageSize=1&systemType=2&lotteryType=dlt');
-      
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      
-      const result = await response.json();
-      
-      // 检查数据格式
-      if (result.value === 'fail' || !result.data || !result.data.list || result.data.list.length === 0) {
-        throw new Error('数据格式错误或无数据');
-      }
-      
-      const latest = result.data.list[0];
-      // 解析开奖号码
-      const frontNums = latest.lotteryDrawResult.split(' ').slice(0, 5).map(n => parseInt(n));
-      const backNums = latest.lotteryDrawResult.split(' ').slice(5, 7).map(n => parseInt(n));
-      
-      const newLine = latest.lotteryDrawResult; // 直接使用原始格式 "01 12 15 19 26 04 16"
-      
-      // 设置最新一期显示
-      setLatestDraw({
-        expect: latest.lotteryDrawTerm,
-        front: frontNums,
-        back: backNums,
-        date: latest.lotteryDrawTime
-      });
-      
-      // 添加到数据开头
-      const lines = dataInput.trim().split('\n').filter(line => line.trim());
-      
-      // 检查是否已存在
-      const exists = lines.some(line => line.trim() === newLine.trim());
-      if (!exists) {
-        lines.unshift(newLine);
-        
-        // 保持最多100条
-        if (lines.length > 100) {
-          lines.pop(); // 移除最旧的一条
-        }
-        
-        const newData = lines.join('\n');
-        setDataInput(newData);
-        
-        // 自动更新分析
-        analyzer.loadHistoryData(newData, "用户数据");
-        const hotCold = analyzer.getHotColdNumbers();
-        const [expFront, expBack] = analyzer.calculateExpectedValue();
-        const variance = analyzer.calculateVariance();
-        const sumProb = analyzer.calculateSumProbability();
-        setStats({ hotCold, expFront, expBack, variance, sumProb });
-        localStorage.setItem('lottery_data', newData);
-        
-        alert(`✅ 成功获取最新一期\n期号：${latest.lotteryDrawTerm}\n号码：${newLine}`);
-      } else {
-        alert('ℹ️ 最新一期已在历史记录中');
-      }
-    } catch (error) {
-      console.error('获取开奖号码失败:', error);
-      alert('❌ 获取失败\n\n错误信息：' + error.message + '\n\n建议：手动输入最新一期号码到文本框中');
-    } finally {
-      setIsLoadingLatest(false);
-    }
-  };
+
 
   const handleGenerate = () => {
     const groups = groupsPerModel || 5;
@@ -426,39 +371,41 @@ function App() {
         </section>
 
         {/* 最新一期开奖号码 */}
-        {latestDraw && (
-          <section className="card latest-draw-card">
-            <h2>🎯 最新一期开奖</h2>
-            <div className="latest-draw-content">
-              <div className="draw-info">
-                <span className="draw-period">第 {latestDraw.expect} 期</span>
-                {latestDraw.date && <span className="draw-date">{latestDraw.date}</span>}
-              </div>
-              <div className="draw-numbers">
-                <div className="front-zone">
-                  <span className="zone-label">前区</span>
-                  <div className="numbers">
-                    {latestDraw.front.map((num, idx) => (
-                      <span key={idx} className="ball front-ball">
-                        {num.toString().padStart(2, '0')}
-                      </span>
-                    ))}
+        {(() => {
+          const latestDraw = getLatestDrawFromData();
+          return latestDraw && (
+            <section className="card latest-draw-card">
+              <h2>🎯 最新一期开奖</h2>
+              <div className="latest-draw-content">
+                <div className="draw-info">
+                  <span className="draw-period">最新一期</span>
+                </div>
+                <div className="draw-numbers">
+                  <div className="front-zone">
+                    <span className="zone-label">前区</span>
+                    <div className="numbers">
+                      {latestDraw.front.map((num, idx) => (
+                        <span key={idx} className="ball front-ball">
+                          {num.toString().padStart(2, '0')}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="back-zone">
+                    <span className="zone-label">后区</span>
+                    <div className="numbers">
+                      {latestDraw.back.map((num, idx) => (
+                        <span key={idx} className="ball back-ball">
+                          {num.toString().padStart(2, '0')}
+                        </span>
+                      ))}
+                    </div>
                   </div>
                 </div>
-                <div className="back-zone">
-                  <span className="zone-label">后区</span>
-                  <div className="numbers">
-                    {latestDraw.back.map((num, idx) => (
-                      <span key={idx} className="ball back-ball">
-                        {num.toString().padStart(2, '0')}
-                      </span>
-                    ))}
-                  </div>
-                </div>
               </div>
-            </div>
-          </section>
-        )}
+            </section>
+          );
+        })()}
 
         <section className="card">
           <h2>📝 数据管理</h2>
@@ -511,17 +458,6 @@ function App() {
             placeholder="或者在这里批量粘贴历史数据..."
           />
           <div className="button-group">
-            <button 
-              onClick={fetchLatestDraw} 
-              className="secondary" 
-              style={{
-                backgroundColor: isLoadingLatest ? '#909399' : '#67c23a',
-                boxShadow: '0 2px 4px rgba(103, 194, 58, 0.3)'
-              }}
-              disabled={isLoadingLatest}
-            >
-              {isLoadingLatest ? '获取中...' : '🔄 获取最新一期'}
-            </button>
             <button onClick={loadData} className="secondary">更新分析</button>
             <button onClick={clearCache} className="secondary" style={{backgroundColor: '#909399'}}>重置数据</button>
           </div>

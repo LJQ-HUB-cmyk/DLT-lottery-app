@@ -5,18 +5,20 @@ import AuthGuard from './components/AuthGuard';
 import './App.css';
 
 // 动态导入外部数据文件（如果存在）
-let externalData = '';
+let externalDataPromise = null;
 try {
   // 这个导入会在打包时由 Vite 处理
   // 如果文件不存在会静默失败
-  import('./data/lottery-history.txt?raw').then(module => {
-    externalData = module.default;
+  externalDataPromise = import('./data/lottery-history.txt?raw').then(module => {
     console.log('已加载外部数据文件');
+    return module.default;
   }).catch(() => {
     console.log('未找到外部数据文件，使用默认数据');
+    return '';
   });
 } catch (e) {
   // 忽略导入错误
+  externalDataPromise = Promise.resolve('');
 }
 
 const defaultData = `07 09 23 27 32 02 08
@@ -131,16 +133,25 @@ function App() {
     loadData();
   }, []);
 
-  const loadData = () => {
+  const loadData = async () => {
     // 优先使用外部数据文件，否则使用 LocalStorage 或默认数据
     let initialData = defaultData;
     
-    // 如果有外部数据文件且不为空，使用外部数据
-    if (externalData && externalData.trim()) {
-      initialData = externalData;
-      console.log('使用外部数据文件');
-    } else {
-      // 否则尝试从 LocalStorage 加载
+    // 等待外部数据文件加载
+    if (externalDataPromise) {
+      try {
+        const externalData = await externalDataPromise;
+        if (externalData && externalData.trim()) {
+          initialData = externalData;
+          console.log('使用外部数据文件');
+        }
+      } catch (e) {
+        console.log('加载外部数据失败，使用默认数据');
+      }
+    }
+    
+    // 如果没有外部数据，尝试从 LocalStorage 加载
+    if (initialData === defaultData) {
       const saved = localStorage.getItem('lottery_data');
       if (saved) {
         initialData = saved;

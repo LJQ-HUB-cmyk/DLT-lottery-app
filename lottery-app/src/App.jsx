@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import LotteryAnalyzer from './utils/lotteryLogic';
 import { trackNumberGeneration, trackCopy, trackSave, trackDataUpdate, trackModelSelection } from './utils/baiduAnalytics';
+import AuthGuard from './components/AuthGuard';
 import './App.css';
 
 const defaultData = `07 09 23 27 32 02 08
@@ -248,20 +249,21 @@ function App() {
   };
 
   return (
-    <div className="app">
-      {/* 烟花背景层 */}
-      <div className="fireworks-layer"></div>
-      
-      <header>
-        <div className="header-watermark wm-1">王正伟</div>
-        <div className="header-watermark wm-2">发财大计</div>
-        <div className="header-watermark wm-3">王正伟</div>
-        <div className="header-watermark wm-4">发财大计</div>
-        <div className="header-watermark wm-5">王正伟</div>
-        <div className="header-watermark wm-6">发财大计</div>
-        <h1>🧧 发财大计</h1>
-        <p>苟富贵，勿相忘！</p>
-      </header>
+    <AuthGuard>
+      <div className="app">
+        {/* 烟花背景层 */}
+        <div className="fireworks-layer"></div>
+        
+        <header>
+          <div className="header-watermark wm-1">王正伟</div>
+          <div className="header-watermark wm-2">发财大计</div>
+          <div className="header-watermark wm-3">王正伟</div>
+          <div className="header-watermark wm-4">发财大计</div>
+          <div className="header-watermark wm-5">王正伟</div>
+          <div className="header-watermark wm-6">发财大计</div>
+          <h1>🧧 发财大计</h1>
+          <p>苟富贵，勿相忘！</p>
+        </header>
 
       <main>
         <section className="card">
@@ -493,6 +495,7 @@ function App() {
         </section>
       </main>
     </div>
+    </AuthGuard>
   );
 }
 

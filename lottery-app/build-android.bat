@@ -5,6 +5,13 @@ echo    彩票分析器 Android APK 打包工具
 echo ========================================
 echo.
 
+REM 如果未设置 ANDROID_HOME，尝试自动设置
+if not defined ANDROID_HOME (
+    if exist "D:\commandlinetools-win-14742923_latest" (
+        set ANDROID_HOME=D:\commandlinetools-win-14742923_latest
+    )
+)
+
 REM 设置 Java 环境 - 自动检测 JDK 17 路径
 set JAVA_FOUND=0
 
@@ -50,20 +57,30 @@ if %errorlevel% neq 0 (
 )
 
 echo [3/5] 检查 Android SDK...
-if not defined ANDROID_HOME (
-    echo [提示] 未设置 ANDROID_HOME，尝试查找...
+
+REM 首先检查系统环境变量
+if defined ANDROID_HOME (
+    echo [信息] 使用环境变量 ANDROID_HOME: %ANDROID_HOME%
+    goto :android_found
+)
+
+echo [提示] 未设置 ANDROID_HOME，尝试查找...
+
+REM 尝试常见的 Android SDK 位置
+if exist "%LOCALAPPDATA%\Android\Sdk" (
+    set ANDROID_HOME=%LOCALAPPDATA%\Android\Sdk
+) else if exist "%USERPROFILE%\AppData\Local\Android\Sdk" (
+    set ANDROID_HOME=%USERPROFILE%\AppData\Local\Android\Sdk
+) else if exist "D:\commandlinetools-win-14742923_latest" (
+    set ANDROID_HOME=D:\commandlinetools-win-14742923_latest
+) else (
+    REM 尝试通配符匹配
+    for /d %%i in ("D:\commandlinetools-win-*") do (
+        set ANDROID_HOME=%%i
+        goto :android_found
+    )
     
-    REM 尝试常见的 Android SDK 位置
-    if exist "%LOCALAPPDATA%\Android\Sdk" (
-        set ANDROID_HOME=%LOCALAPPDATA%\Android\Sdk
-    ) else if exist "%USERPROFILE%\AppData\Local\Android\Sdk" (
-        set ANDROID_HOME=%USERPROFILE%\AppData\Local\Android\Sdk
-    ) else if exist "D:\commandlinetools-win-*" (
-        for /d %%i in ("D:\commandlinetools-win-*") do (
-            set ANDROID_HOME=%%i
-            goto :android_found
-        )
-    ) else if exist "C:\Android\Sdk" (
+    if exist "C:\Android\Sdk" (
         set ANDROID_HOME=C:\Android\Sdk
     ) else (
         echo [错误] 未找到 Android SDK
@@ -106,6 +123,23 @@ cd ..
 
 REM Get APK path
 set APK_PATH=%cd%\android\app\build\outputs\apk\debug\
+set ORIGINAL_APK=%APK_PATH%app-debug.apk
+set NEW_APK=%APK_PATH%发财大计.apk
+
+REM Rename APK to "发财大计.apk"
+if exist "%ORIGINAL_APK%" (
+    echo.
+    echo [信息] 重命名 APK 文件...
+    copy "%ORIGINAL_APK%" "%NEW_APK%" >nul
+    if %errorlevel% equ 0 (
+        echo [成功] APK 已重命名为: 发财大计.apk
+    ) else (
+        echo [警告] 重命名失败，使用原始文件名
+        set NEW_APK=%ORIGINAL_APK%
+    )
+) else (
+    echo [警告] 未找到 APK 文件
+)
 
 echo.
 echo ========================================

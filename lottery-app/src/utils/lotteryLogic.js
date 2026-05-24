@@ -13,10 +13,12 @@ const CONFIG = {
   COLD_NUMBERS_COUNT: 10,   // 冷号数量
   ROTATION_HIGH_FREQ: 15,   // 旋转矩阵高频号数量
   ROTATION_LOW_FREQ: 6,     // 旋转矩阵后区高频号数量
-  BAYESIAN_CANDIDATE_FRONT: 10,  // 贝叶斯前区候选数量
-  BAYESIAN_CANDIDATE_BACK: 4,    // 贝叶斯后区候选数量
-  DISTRIBUTION_TRY_COUNT: 200,   // 分布策略尝试次数
+  BAYESIAN_CANDIDATE_FRONT: 12,  // 贝叶斯前区候选数量（增加到12以提高覆盖率）
+  BAYESIAN_CANDIDATE_BACK: 6,    // 贝叶斯后区候选数量（增加到6以提高覆盖率）
+  DISTRIBUTION_TRY_COUNT: 300,   // 分布策略尝试次数（增加到300以找到更优解）
   TIME_DECAY_FACTOR: 0.95,  // 时间衰减因子
+  HYBRID_MODEL_COUNT: 3,    // 混合模型使用的模型数量
+  QUALITY_SCORE_THRESHOLD: 75,  // 质量评分阈值（提高要求）
 };
 
 class LotteryAnalyzer {
@@ -444,9 +446,10 @@ class LotteryAnalyzer {
   }
 
   /**
-   * 周易时空预测模型（优化版）
+   * 周易时空预测模型（优化版 v2）
    * 基于用户点击生成的实际时间，结合周易卦象和开奖周期
    * 开奖时间：周一、周三、周六
+   * 优化：增加卦象组合的多样性，改进后区选择策略
    */
   generateZhouyiPrediction(iteration = 0) {
     const now = new Date();
@@ -457,6 +460,7 @@ class LotteryAnalyzer {
     const day = now.getDate();
     const hour = now.getHours();
     const minute = now.getMinutes();
+    const second = now.getSeconds(); // 新增秒数，增加随机性
     const weekday = now.getDay(); // 0=周日, 1=周一, ..., 6=周六
     
     // 计算距离下次开奖的天数
@@ -476,26 +480,26 @@ class LotteryAnalyzer {
     }
     if (daysToNextDraw === 0) daysToNextDraw = 7;
     
-    // 上卦：年+月+日 除以8的余数
-    const upperTrigram = (year + month + day) % 8;
+    // 上卦：年+月+日+iteration 除以8的余数（加入iteration增加多样性）
+    const upperTrigram = (year + month + day + iteration) % 8;
     
-    // 下卦：年+月+日+时 除以8的余数
-    const lowerTrigram = (year + month + day + hour) % 8;
+    // 下卦：年+月+日+时+分 除以8的余数
+    const lowerTrigram = (year + month + day + hour + minute) % 8;
     
-    // 动爻：年+月+日+时+分+距开奖天数 除以6的余数
-    const movingLine = (year + month + day + hour + minute + daysToNextDraw + iteration) % 6;
+    // 动爻：年+月+日+时+分+秒+距开奖天数 除以6的余数（加入秒数）
+    const movingLine = (year + month + day + hour + minute + second + daysToNextDraw) % 6;
     
-    // 八卦对应的号码池（根据先天八卦数）
+    // 八卦对应的号码池（根据先天八卦数，优化分布）
     // 乾1、兑2、离3、震4、巽5、坎6、艮7、坤8
     const trigramElements = {
-      0: [1, 9, 17, 25, 33],      // 坤卦：大地之数
-      1: [2, 10, 18, 26, 34],      // 乾卦：天行之数
-      2: [3, 11, 19, 27, 35],      // 兑卦：泽润之数
-      3: [4, 12, 20, 28],          // 离卦：火明之数
-      4: [5, 13, 21, 29],          // 震卦：雷动之数
-      5: [6, 14, 22, 30],          // 巽卦：风入之数
-      6: [7, 15, 23, 31],          // 坎卦：水润之数
-      7: [8, 16, 24, 32]           // 艮卦：山止之数
+      0: [1, 8, 15, 22, 29],      // 坤卦：大地之数（均匀分布）
+      1: [2, 9, 16, 23, 30],      // 乾卦：天行之数
+      2: [3, 10, 17, 24, 31],     // 兑卦：泽润之数
+      3: [4, 11, 18, 25, 32],     // 离卦：火明之数
+      4: [5, 12, 19, 26, 33],     // 震卦：雷动之数
+      5: [6, 13, 20, 27, 34],     // 巽卦：风入之数
+      6: [7, 14, 21, 28, 35],     // 坎卦：水润之数
+      7: [1, 9, 17, 25, 33]       // 艮卦：山止之数（与坤卦呼应）
     };
     
     // 根据上卦和下卦组合选号
@@ -507,21 +511,30 @@ class LotteryAnalyzer {
     
     // 如果号码池不足，补充其他相关号码
     if (combinedPool.length < CONFIG.FRONT_COUNT) {
-      // 添加动爻相关的号码
+      // 添加动爻相关的号码（扩大范围）
       const movingLineNumbers = [
         movingLine + 1,
-        movingLine + 7,
-        movingLine + 13,
-        movingLine + 19,
-        movingLine + 25,
+        movingLine + 6,
+        movingLine + 11,
+        movingLine + 16,
+        movingLine + 21,
+        movingLine + 26,
         movingLine + 31
       ].filter(n => n >= 1 && n <= CONFIG.FRONT_RANGE);
       
       combinedPool.push(...movingLineNumbers);
     }
     
-    // 从组合池中选取前区号码
-    let front = this.randomSample(combinedPool, CONFIG.FRONT_COUNT);
+    // 从组合池中选取前区号码（使用加权采样，优先选择历史频率较高的号码）
+    const [frontCounter] = this.analyzeFrequency();
+    const poolWithWeights = combinedPool.map(num => ({
+      num,
+      weight: (frontCounter[num] || 0) + 1 // 基础权重+1避免为0
+    }));
+    
+    const nums = poolWithWeights.map(x => x.num);
+    const weights = poolWithWeights.map(x => x.weight);
+    let front = this.weightedSampleNoReplacement(nums, weights, CONFIG.FRONT_COUNT);
     
     // 如果仍然不足，用随机号码补充
     if (front.length < CONFIG.FRONT_COUNT) {
@@ -529,47 +542,48 @@ class LotteryAnalyzer {
       front = [...front, ...this.randomSample(remaining, CONFIG.FRONT_COUNT - front.length)];
     }
     
-    // 后区号码：根据时辰和动爻选择
-    // 十二时辰对应后区号码
+    // 后区号码优化：结合时辰、动爻和历史频率
+    const [_, backCounter] = this.analyzeFrequency();
+    
+    // 十二时辰对应后区号码（扩展候选池）
     const hourBackMap = {
-      0: [1, 7],   // 子时
-      1: [1, 7],   // 子时
-      2: [2, 8],   // 丑时
-      3: [2, 8],   // 丑时
-      4: [3, 9],   // 寅时
-      5: [3, 9],   // 寅时
-      6: [4, 10],  // 卯时
-      7: [4, 10],  // 卯时
-      8: [5, 11],  // 辰时
-      9: [5, 11],  // 辰时
-      10: [6, 12], // 巳时
-      11: [6, 12], // 巳时
-      12: [1, 7],  // 午时
-      13: [1, 7],  // 午时
-      14: [2, 8],  // 未时
-      15: [2, 8],  // 未时
-      16: [3, 9],  // 申时
-      17: [3, 9],  // 申时
-      18: [4, 10], // 酉时
-      19: [4, 10], // 酉时
-      20: [5, 11], // 戌时
-      21: [5, 11], // 戌时
-      22: [6, 12], // 亥时
-      23: [6, 12]  // 亥时
+      0: [1, 6, 7, 12],   // 子时
+      1: [1, 6, 7, 12],   // 子时
+      2: [2, 5, 8, 11],   // 丑时
+      3: [2, 5, 8, 11],   // 丑时
+      4: [3, 4, 9, 10],   // 寅时
+      5: [3, 4, 9, 10],   // 寅时
+      6: [1, 4, 7, 10],   // 卯时
+      7: [1, 4, 7, 10],   // 卯时
+      8: [2, 5, 8, 11],   // 辰时
+      9: [2, 5, 8, 11],   // 辰时
+      10: [3, 6, 9, 12],  // 巳时
+      11: [3, 6, 9, 12],  // 巳时
+      12: [1, 6, 7, 12],  // 午时
+      13: [1, 6, 7, 12],  // 午时
+      14: [2, 5, 8, 11],  // 未时
+      15: [2, 5, 8, 11],  // 未时
+      16: [3, 4, 9, 10],  // 申时
+      17: [3, 4, 9, 10],  // 申时
+      18: [1, 4, 7, 10],  // 酉时
+      19: [1, 4, 7, 10],  // 酉时
+      20: [2, 5, 8, 11],  // 戌时
+      21: [2, 5, 8, 11],  // 戌时
+      22: [3, 6, 9, 12],  // 亥时
+      23: [3, 6, 9, 12]   // 亥时
     };
     
-    const backCandidates = hourBackMap[hour] || [1, 12];
+    const backCandidates = hourBackMap[hour] || [1, 6, 7, 12];
     
-    // 根据动爻调整
-    if (movingLine < 3) {
-      // 动爻在下，选较小的号码
-      backCandidates.sort((a, b) => a - b);
-    } else {
-      // 动爻在上，选较大的号码
-      backCandidates.sort((a, b) => b - a);
-    }
+    // 根据动爻和后区历史频率选择
+    const backWithWeights = backCandidates.map(num => ({
+      num,
+      weight: (backCounter[num] || 0) + 1
+    }));
     
-    const back = backCandidates.slice(0, CONFIG.BACK_COUNT);
+    const backNums = backWithWeights.map(x => x.num);
+    const backWeights = backWithWeights.map(x => x.weight);
+    const back = this.weightedSampleNoReplacement(backNums, backWeights, CONFIG.BACK_COUNT);
     
     front.sort((a, b) => a - b);
     back.sort((a, b) => a - b);
@@ -577,12 +591,14 @@ class LotteryAnalyzer {
   }
 
   /**
-   * 贝叶斯动态预测模型（优化版）
+   * 贝叶斯动态预测模型（优化版 v2）
    * 基于历史数据计算条件概率，动态调整预测权重
    * 性能优化：使用向量化计算，避免三层嵌套循环
+   * 优化：增加遗漏值因子和区间平衡因子
    */
   generateBayesianPrediction() {
     const [frontCounter, backCounter] = this.analyzeFrequency();
+    const omission = this.calculateOmission();
     const totalDraws = this.historyData.length;
     
     if (totalDraws === 0) {
@@ -604,35 +620,69 @@ class LotteryAnalyzer {
       priorBack[i] = (backCounter[i] || 0) / totalDraws;
     }
     
-    // 优化：使用后验概率选择号码（结合先验和时间加权）
+    // 优化：使用后验概率选择号码（结合先验、时间加权和遗漏值）
     const posteriorFront = {};
     const posteriorBack = {};
     
+    // 计算平均遗漏值（用于回归分析）
+    const frontOmissionValues = Object.values(omission.front);
+    const backOmissionValues = Object.values(omission.back);
+    const frontAvgOmission = frontOmissionValues.reduce((a, b) => a + b, 0) / frontOmissionValues.length;
+    const backAvgOmission = backOmissionValues.reduce((a, b) => a + b, 0) / backOmissionValues.length;
+    
     // 前区后验概率计算
     for (let i = 1; i <= CONFIG.FRONT_RANGE; i++) {
-      let score = priorFront[i];
-      // 考虑最近趋势（时间加权）- 近期数据权重更高
+      let score = priorFront[i] * 0.4; // 降低先验权重
+      
+      // 时间加权：近期数据权重更高
+      let timeScore = 0;
       for (let idx = 0; idx < this.historyData.length; idx++) {
         const draw = this.historyData[idx];
         if (draw.front.includes(i)) {
-          // 指数时间加权：越近的数据权重越高
           const timeWeight = Math.exp((idx - this.historyData.length + 1) / this.historyData.length);
-          score += timeWeight * 0.1;
+          timeScore += timeWeight * 0.15;
         }
       }
+      score += timeScore;
+      
+      // 遗漏值因子：接近平均遗漏值的号码得分更高（均值回归理论）
+      const currentOmission = omission.front[i] || 0;
+      const omissionDiff = Math.abs(currentOmission - frontAvgOmission);
+      const omissionFactor = Math.max(0, 1 - omissionDiff / (frontAvgOmission * 2));
+      score += omissionFactor * 0.3;
+      
+      // 区间平衡因子：确保号码分布均匀
+      const zoneIndex = Math.floor((i - 1) / 5); // 7个区间
+      const zoneBonus = (zoneIndex % 2 === 0) ? 0.05 : 0; // 交替加分
+      score += zoneBonus;
+      
       posteriorFront[i] = score;
     }
     
     // 后区后验概率计算
     for (let i = 1; i <= CONFIG.BACK_RANGE; i++) {
-      let score = priorBack[i];
+      let score = priorBack[i] * 0.4;
+      
+      let timeScore = 0;
       for (let idx = 0; idx < this.historyData.length; idx++) {
         const draw = this.historyData[idx];
         if (draw.back.includes(i)) {
           const timeWeight = Math.exp((idx - this.historyData.length + 1) / this.historyData.length);
-          score += timeWeight * 0.1;
+          timeScore += timeWeight * 0.15;
         }
       }
+      score += timeScore;
+      
+      // 遗漏值因子
+      const currentOmission = omission.back[i] || 0;
+      const omissionDiff = Math.abs(currentOmission - backAvgOmission);
+      const omissionFactor = Math.max(0, 1 - omissionDiff / (backAvgOmission * 2));
+      score += omissionFactor * 0.3;
+      
+      // 奇偶平衡因子
+      const oddEvenBonus = (i % 2 === 1) ? 0.05 : 0; // 奇数稍加分
+      score += oddEvenBonus;
+      
       posteriorBack[i] = score;
     }
     
@@ -656,11 +706,13 @@ class LotteryAnalyzer {
   }
 
   /**
-   * 旋转矩阵优化模型
+   * 旋转矩阵优化模型（优化版 v2）
    * 使用组合数学方法生成覆盖度最优的号码组合
+   * 优化：增加更多策略，提高多样性
    */
   generateRotationMatrixPrediction(groups = 1) {
     const [frontCounter, backCounter] = this.analyzeFrequency();
+    const omission = this.calculateOmission();
     
     // 根据频率排序，选择高频号码作为基础池
     const sortedFrontNums = Object.entries(frontCounter)
@@ -677,31 +729,60 @@ class LotteryAnalyzer {
     const lowFreqFront = Object.entries(frontCounter)
       .filter(([_, count]) => count === 0 || count <= 2)
       .map(x => Number(x[0]))
-      .slice(0, 5);
+      .slice(0, 8); // 增加到8个
     
-    const allFrontPool = [...new Set([...sortedFrontNums, ...lowFreqFront])];
+    // 添加遗漏值较大的号码
+    const highOmissionFront = Object.entries(omission.front)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 6)
+      .map(x => Number(x[0]));
+    
+    const allFrontPool = [...new Set([...sortedFrontNums, ...lowFreqFront, ...highOmissionFront])];
     const allBackPool = [...new Set([...sortedBackNums])];
     
     const results = [];
     
     for (let g = 0; g < groups; g++) {
-      // 旋转策略：每组使用不同的号码分布
       let front;
-      if (g % 3 === 0) {
+      
+      // 5种不同的旋转策略
+      if (g % 5 === 0) {
         // 策略1：主要高频号
         front = this.randomSample(sortedFrontNums, CONFIG.FRONT_COUNT);
-      } else if (g % 3 === 1) {
+      } else if (g % 5 === 1) {
         // 策略2：混合高频和中频
-        const midFreq = allFrontPool.filter(n => !sortedFrontNums.includes(n)).slice(0, 10);
+        const midFreq = allFrontPool.filter(n => !sortedFrontNums.includes(n)).slice(0, 12);
         const mixed = [...sortedFrontNums.slice(0, 10), ...midFreq];
         front = this.randomSample(mixed, CONFIG.FRONT_COUNT);
-      } else {
+      } else if (g % 5 === 2) {
         // 策略3：包含冷门号
-        const withCold = [...sortedFrontNums.slice(0, 12), ...lowFreqFront.slice(0, 3)];
+        const withCold = [...sortedFrontNums.slice(0, 10), ...lowFreqFront.slice(0, 5)];
         front = this.randomSample(withCold, CONFIG.FRONT_COUNT);
+      } else if (g % 5 === 3) {
+        // 策略4：遗漏值回归策略
+        const withOmission = [...highOmissionFront.slice(0, 3), ...sortedFrontNums.slice(0, 12)];
+        front = this.randomSample(withOmission, CONFIG.FRONT_COUNT);
+      } else {
+        // 策略5：全池随机（增加探索性）
+        front = this.randomSample(allFrontPool, CONFIG.FRONT_COUNT);
       }
       
-      const back = this.randomSample(allBackPool, CONFIG.BACK_COUNT);
+      // 后区也采用不同策略
+      let back;
+      if (g % 3 === 0) {
+        back = this.randomSample(sortedBackNums, CONFIG.BACK_COUNT);
+      } else if (g % 3 === 1) {
+        // 混合高低频
+        const allBackExpanded = [...sortedBackNums, ...this.backNumbers.filter(n => !sortedBackNums.includes(n)).slice(0, 4)];
+        back = this.randomSample(allBackExpanded, CONFIG.BACK_COUNT);
+      } else {
+        // 基于遗漏值
+        const backByOmission = Object.entries(omission.back)
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 6)
+          .map(x => Number(x[0]));
+        back = this.randomSample(backByOmission, CONFIG.BACK_COUNT);
+      }
       
       front.sort((a, b) => a - b);
       back.sort((a, b) => a - b);
@@ -709,6 +790,97 @@ class LotteryAnalyzer {
     }
     
     return results;
+  }
+
+  /**
+   * 混合预测模型（新增）
+   * 结合周易、贝叶斯和旋转矩阵的优势
+   * 科学性：基于多模型投票机制，提高稳定性
+   */
+  generateHybridPrediction() {
+    // 生成三个模型的预测结果
+    const zhouyi = this.generateZhouyiPrediction();
+    const bayesian = this.generateBayesianPrediction();
+    const rotationResults = this.generateRotationMatrixPrediction(1);
+    const rotation = rotationResults[0];
+    
+    // 前区：收集所有模型的候选号码
+    const zhouyiFront = zhouyi.slice(0, 5);
+    const bayesianFront = bayesian.slice(0, 5);
+    const rotationFront = rotation.front;
+    
+    // 统计每个号码的出现次数（投票）
+    const voteCount = {};
+    [...zhouyiFront, ...bayesianFront, ...rotationFront].forEach(num => {
+      voteCount[num] = (voteCount[num] || 0) + 1;
+    });
+    
+    // 按票数排序，票数相同则随机打乱
+    const candidates = Object.entries(voteCount)
+      .sort((a, b) => {
+        if (b[1] !== a[1]) return b[1] - a[1];
+        return Math.random() - 0.5;
+      })
+      .map(x => Number(x[0]));
+    
+    // 如果候选号码不足5个，补充高质量号码
+    if (candidates.length < CONFIG.FRONT_COUNT) {
+      const [frontCounter] = this.analyzeFrequency();
+      const remaining = this.frontNumbers
+        .filter(n => !candidates.includes(n))
+        .sort((a, b) => (frontCounter[b] || 0) - (frontCounter[a] || 0));
+      candidates.push(...remaining.slice(0, CONFIG.FRONT_COUNT - candidates.length));
+    }
+    
+    // 从候选中选择前区号码，并进行质量评估
+    let bestFront = null;
+    let bestScore = -Infinity;
+    
+    for (let i = 0; i < 50; i++) {
+      const selected = this.randomSample(candidates, CONFIG.FRONT_COUNT);
+      const score = this.evaluateCombination(selected, [1, 2]); // 临时后区
+      
+      if (score > bestScore) {
+        bestScore = score;
+        bestFront = selected;
+      }
+      
+      // 如果找到高质量组合，提前退出
+      if (score >= CONFIG.QUALITY_SCORE_THRESHOLD) {
+        break;
+      }
+    }
+    
+    const front = bestFront || this.randomSample(candidates, CONFIG.FRONT_COUNT);
+    
+    // 后区：使用投票机制
+    const zhouyiBack = zhouyi.slice(5);
+    const bayesianBack = bayesian.slice(5);
+    const rotationBack = rotation.back;
+    
+    const backVoteCount = {};
+    [...zhouyiBack, ...bayesianBack, ...rotationBack].forEach(num => {
+      backVoteCount[num] = (backVoteCount[num] || 0) + 1;
+    });
+    
+    const backCandidates = Object.entries(backVoteCount)
+      .sort((a, b) => b[1] - a[1])
+      .map(x => Number(x[0]));
+    
+    // 如果候选不足，补充
+    if (backCandidates.length < CONFIG.BACK_COUNT) {
+      const [_, backCounter] = this.analyzeFrequency();
+      const remaining = this.backNumbers
+        .filter(n => !backCandidates.includes(n))
+        .sort((a, b) => (backCounter[b] || 0) - (backCounter[a] || 0));
+      backCandidates.push(...remaining.slice(0, CONFIG.BACK_COUNT - backCandidates.length));
+    }
+    
+    const back = backCandidates.slice(0, CONFIG.BACK_COUNT);
+    
+    front.sort((a, b) => a - b);
+    back.sort((a, b) => a - b);
+    return [...front, ...back];
   }
 
   // 辅助函数

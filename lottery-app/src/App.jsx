@@ -274,8 +274,62 @@ function App() {
     
     if (confirm('确定要重新生成吗？这将覆盖当前号码。')) {
       const newRefreshCount = refreshCount + 1;
-      setRefreshCount(newRefreshCount);
-      handleGenerate(); // 调用生成函数，会自动保存新缓存
+      setIsGenerating(true);
+      
+      setTimeout(() => {
+        const groups = groupsPerModel || 5;
+        const results = [];
+        selectedModels.forEach(model => {
+          // 旋转矩阵特殊处理：一次性生成多组
+          if (model === 'rotation') {
+            const rotationResults = analyzer.generateRotationMatrixPrediction(groups);
+            if (Array.isArray(rotationResults)) {
+              rotationResults.forEach((group, idx) => {
+                results.push({
+                  model,
+                  groupNum: idx + 1,
+                  front: group.front,
+                  back: group.back
+                });
+              });
+            }
+          } else {
+            // 其他模型：按组数循环生成
+            for (let i = 0; i < groups; i++) {
+              let comb;
+              if (model === 'omission') comb = analyzer.generateOmissionBasedPrediction();
+              else if (model === 'time_decay') comb = analyzer.generateTimeDecayPrediction();
+              else if (model === 'bayesian') comb = analyzer.generateBayesianPrediction();
+              else if (model === 'zhouyi') comb = analyzer.generateZhouyiPrediction(i); // 周易不缓存，每次都重新生成
+              else if (model === 'hybrid') comb = analyzer.generateHybridPrediction();
+              else comb = analyzer.generateStatisticalPrediction(model);
+              
+              results.push({
+                model,
+                groupNum: i + 1,
+                front: comb.slice(0, 5),
+                back: comb.slice(5)
+              });
+            }
+          }
+          
+          // 追踪每个模型的生成
+          trackNumberGeneration(model, groups);
+        });
+        
+        setPredictions(results);
+        setCopySuccess(false);
+        setHasGeneratedToday(true);
+        setRefreshCount(newRefreshCount);
+        
+        // 保存今日缓存（不包括周易）
+        const shouldCache = !selectedModels.includes('zhouyi');
+        if (shouldCache && results.length > 0) {
+          saveTodayPrediction(results, newRefreshCount);
+        }
+        
+        setIsGenerating(false);
+      }, 300);
     }
   };
 

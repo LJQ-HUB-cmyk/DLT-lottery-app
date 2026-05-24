@@ -229,11 +229,13 @@ function App() {
     if (cached) {
       try {
         const data = JSON.parse(cached);
-        // 只加载数据到状态，但不自动显示（需要用户点击生成后才显示）
+        // 加载数据到状态
         setTodayPrediction(data.prediction);
         setLastGenerateTime(data.timestamp);
         setRefreshCount(data.refreshCount || 0);
-        console.log('✅ 检测到今日缓存:', data.timestamp, '(但不会自动显示)');
+        // 如果检测到缓存，说明今天已经生成过
+        setHasGeneratedToday(true);
+        console.log('✅ 检测到今日缓存:', data.timestamp);
       } catch (e) {
         console.error('解析缓存失败:', e);
       }

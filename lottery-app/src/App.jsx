@@ -260,18 +260,13 @@ function App() {
     setRefreshCount(refreshCount);
   };
 
-  // 检查是否可以刷新
+  // 检查是否可以刷新（已移除限制）
   const canRegenerate = () => {
-    return refreshCount < 5; // 每天最多刷新5次
+    return true; // 不限制刷新次数
   };
 
   // 重新生成号码（手动刷新）
   const handleRegenerate = () => {
-    if (!canRegenerate()) {
-      alert('今日已刷新5次，请明天再来~');
-      return;
-    }
-    
     if (confirm('确定要重新生成吗？这将覆盖当前号码。')) {
       const newRefreshCount = refreshCount + 1;
       setIsGenerating(true);
@@ -870,14 +865,13 @@ function App() {
               </div>
               <div className="cache-details">
                 <span className="cache-time">📅 生成时间: {lastGenerateTime}</span>
-                <span className="refresh-count">🔄 今日已刷新: {refreshCount}/5次</span>
+                <span className="refresh-count">🔄 今日已刷新: {refreshCount}次</span>
               </div>
               <button 
                 onClick={handleRegenerate}
                 className="regenerate-button"
-                disabled={!canRegenerate()}
               >
-                🔄 重新生成 {canRegenerate() ? '' : '(已达上限)'}
+                🔄 重新生成
               </button>
             </div>
           )}

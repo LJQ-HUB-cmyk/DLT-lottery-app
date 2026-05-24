@@ -447,7 +447,7 @@ function App() {
           const recommendation = analyzer.analyzeAndRecommendModel(latestDraw);
           if (!recommendation) return null;
           
-          const { recommendedModel, allModels, reason, alternativeSuggestion, analysisTime } = recommendation;
+          const { recommendedModel, allModels, reason, alternativeSuggestion, analysisTime, dataVolume, sampleSize } = recommendation;
           
           return (
             <section className="card model-recommendation-card">
@@ -521,6 +521,7 @@ function App() {
                   
                   <div className="analysis-footer">
                     <span className="analysis-time">分析时间: {analysisTime}</span>
+                    <span className="data-volume-info">📊 基于{dataVolume}期历史数据 | 每模型{sampleSize}组样本</span>
                     <span className="analysis-tip">💡 提示：建议结合多个模型使用，提高覆盖率</span>
                   </div>
                 </div>

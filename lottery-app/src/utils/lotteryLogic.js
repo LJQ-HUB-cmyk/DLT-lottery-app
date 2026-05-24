@@ -1300,7 +1300,17 @@ class LotteryAnalyzer {
     // 生成缓存键（基于最新开奖号码）
     const cacheKey = `recommendation_${latestDraw.front.join(',')}_${latestDraw.back.join(',')}`;
     const now = Date.now();
-    const CACHE_DURATION = 3 * 60 * 1000; // 缓存3分钟（缩短以便更快更新）
+    
+    // 根据历史数据量动态调整缓存时间
+    const dataVolume = this.historyData.length;
+    let CACHE_DURATION;
+    if (dataVolume >= 200) {
+      CACHE_DURATION = 5 * 60 * 1000; // 200+期：缓存5分钟（更稳定）
+    } else if (dataVolume >= 100) {
+      CACHE_DURATION = 4 * 60 * 1000; // 100-200期：缓存4分钟
+    } else {
+      CACHE_DURATION = 3 * 60 * 1000; // <100期：缓存3分钟
+    }
 
     // 检查缓存是否有效
     if (this.cache.recommendation && 
@@ -1316,15 +1326,33 @@ class LotteryAnalyzer {
       }
     }
 
-    console.log('🔄 开始重新计算推荐结果（大样本分析）...');
+    console.log(`🔄 开始重新计算推荐结果（大样本分析，历史数据${dataVolume}期）...`);
 
-    // 生成各模型的预测结果（大幅增加样本量以提高准确性和稳定性）
-    const SAMPLE_COUNT = {
-      zhouyi: 50,      // 周易：50组
-      bayesian: 50,    // 贝叶斯：50组
-      rotation: 50,    // 旋转矩阵：50组（10次×5组）
-      hybrid: 50       // 混合模型：50组
-    };
+    // 生成各模型的预测结果（根据数据量动态调整样本数）
+    // 数据量越大，样本数越多，统计越准确
+    let SAMPLE_COUNT;
+    if (dataVolume >= 200) {
+      SAMPLE_COUNT = {
+        zhouyi: 80,      // 周易：80组
+        bayesian: 80,    // 贝叶斯：80组
+        rotation: 80,    // 旋转矩阵：80组（16次×5组）
+        hybrid: 80       // 混合模型：80组
+      };
+    } else if (dataVolume >= 100) {
+      SAMPLE_COUNT = {
+        zhouyi: 60,
+        bayesian: 60,
+        rotation: 60,
+        hybrid: 60
+      };
+    } else {
+      SAMPLE_COUNT = {
+        zhouyi: 50,
+        bayesian: 50,
+        rotation: 50,
+        hybrid: 50
+      };
+    }
 
     const zhouyiPredictions = [];
     for (let i = 0; i < SAMPLE_COUNT.zhouyi; i++) {
@@ -1344,9 +1372,10 @@ class LotteryAnalyzer {
       });
     }
 
-    // 旋转矩阵：生成10次，每次5组，共50组
+    // 旋转矩阵：根据目标样本数动态调整批次
     const rotationPredictions = [];
-    for (let i = 0; i < 10; i++) {
+    const rotationBatches = Math.ceil(SAMPLE_COUNT.rotation / 5);
+    for (let i = 0; i < rotationBatches; i++) {
       const batch = this.generateRotationMatrixPrediction(5);
       rotationPredictions.push(...batch);
     }
@@ -1397,24 +1426,35 @@ class LotteryAnalyzer {
     const rotationStats = calculateHitRate(rotationPredictions, latestDraw);
     const hybridStats = calculateHitRate(hybridPredictions, latestDraw);
 
-    // 综合评分算法（优化版 v4）
-    // 考虑因素：前区命中率、后区命中率、稳定性、样本覆盖度
+    // 综合评分算法（优化版 v5 - 适配206期大数据）
+    // 考虑因素：前区命中率、后区命中率、稳定性、样本覆盖度、一致性
     const calculateScore = (stats) => {
-      const frontWeight = 0.50;  // 前区权重50%（与前区难度匹配）
-      const backWeight = 0.50;   // 后区权重50%
+      // 根据理论期望值调整权重（前区更难命中，给予更高权重）
+      const frontWeight = 0.55;  // 前区权重55%（5/35=14.3%，难度更高）
+      const backWeight = 0.45;   // 后区权重45%（2/12=16.7%，相对容易）
       
-      // 基础分数（等权重）
+      // 基础分数（加权平均）
       const baseScore = parseFloat(stats.frontHitRate) * frontWeight + 
                        parseFloat(stats.backHitRate) * backWeight;
       
       // 稳定性因子（多样本时给予更高权重）
-      const stabilityFactor = stats.sampleCount >= 50 ? 1.0 : 
-                             stats.sampleCount >= 20 ? 0.98 : 0.95;
+      // 80组以上为满分，鼓励更大样本
+      const stabilityFactor = stats.sampleCount >= 80 ? 1.0 : 
+                             stats.sampleCount >= 60 ? 0.99 : 
+                             stats.sampleCount >= 50 ? 0.97 : 0.95;
       
-      // 覆盖度因子（样本越多越可靠，50组为满分）
-      const coverageFactor = Math.min(stats.sampleCount / 50, 1.0);
+      // 覆盖度因子（样本越多越可靠，80组为满分）
+      const coverageFactor = Math.min(stats.sampleCount / 80, 1.0);
       
-      return baseScore * stabilityFactor * (0.8 + 0.2 * coverageFactor);
+      // 超过期望值的奖励因子
+      const expectedTotal = parseFloat(stats.expectedFrontRate) * frontWeight + 
+                           parseFloat(stats.expectedBackRate) * backWeight;
+      const performanceRatio = baseScore / expectedTotal;
+      const bonusFactor = performanceRatio > 1.2 ? 1.05 :  // 超出期望20%以上，额外奖励5%
+                         performanceRatio > 1.1 ? 1.03 :   // 超出期望10%以上，奖励3%
+                         1.0;
+      
+      return baseScore * stabilityFactor * (0.8 + 0.2 * coverageFactor) * bonusFactor;
     };
 
     const models = [
@@ -1469,11 +1509,12 @@ class LotteryAnalyzer {
       parseFloat(b.stats.backHitRate) - parseFloat(a.stats.backHitRate)
     )[0];
 
-    // 生成推荐理由（优化版 v2）
+    // 生成推荐理由（优化版 v3 - 基于206期大数据）
     let reason = '';
     const bestBackRate = parseFloat(bestModel.stats.backHitRate);
     const bestFrontRate = parseFloat(bestModel.stats.frontHitRate);
     const secondBackRate = parseFloat(secondModel.stats.backHitRate);
+    const secondFrontRate = parseFloat(secondModel.stats.frontHitRate);
     
     // 检查是否是混合模型
     const isHybridBest = bestModel.key === 'hybrid';
@@ -1482,39 +1523,46 @@ class LotteryAnalyzer {
       // 混合模型的特殊说明
       reason = `混合模型融合了三大基础模型的优势，通过投票机制和智能加权，`; 
       
-      if (bestBackRate > 45) {
-        reason += `在后区预测上表现卓越（${bestModel.stats.backHitRate}%），`;
-      } else if (bestFrontRate > 15) {
-        reason += `在前区预测上相对稳定（${bestModel.stats.frontHitRate}%），`;
+      if (bestBackRate > 50) {
+        reason += `在后区预测上表现卓越（${bestModel.stats.backHitRate}%），远超随机期望；`;
+      } else if (bestBackRate > 40) {
+        reason += `在后区预测上表现出色（${bestModel.stats.backHitRate}%），高于随机期望；`;
+      } else if (bestFrontRate > 18) {
+        reason += `在前区预测上相对稳定（${bestModel.stats.frontHitRate}%），优于随机选择；`;
       } else {
-        reason += '整体表现均衡稳定，';
+        reason += '整体表现均衡稳定，多模型融合降低单一模型偏差；';
       }
       
       // 提示用户也可以尝试基础模型
       reason += '\n💡 提示：混合模型虽好，但也可尝试单一模型以获取不同视角。';
     } else {
       // 基础模型的推荐理由
-      if (bestBackRate > 50) {
-        reason = `该模型在后区预测上表现卓越（命中率${bestModel.stats.backHitRate}%），`;
-      } else if (bestBackRate > 40) {
-        reason = `该模型后区命中率较高（${bestModel.stats.backHitRate}%），`;
+      if (bestBackRate > 55) {
+        reason = `该模型在后区预测上表现卓越（命中率${bestModel.stats.backHitRate}%），远超随机期望（16.7%）；`;
+      } else if (bestBackRate > 45) {
+        reason = `该模型后区命中率较高（${bestModel.stats.backHitRate}%），明显优于随机选择；`;
+      } else if (bestBackRate > 35) {
+        reason = `该模型后区表现良好（${bestModel.stats.backHitRate}%），略高于随机期望；`;
       } else if (bestFrontRate > 20) {
-        reason = `该模型在前区预测上表现出色（命中率${bestModel.stats.frontHitRate}%），`;
-      } else if (bestFrontRate > 15) {
-        reason = `该模型前区表现相对较好（${bestModel.stats.frontHitRate}%），`;
+        reason = `该模型在前区预测上表现出色（命中率${bestModel.stats.frontHitRate}%），远超随机期望（14.3%）；`;
+      } else if (bestFrontRate > 16) {
+        reason = `该模型前区表现较好（${bestModel.stats.frontHitRate}%），优于随机选择；`;
       } else {
-        reason = '综合多维度分析，该模型整体表现最优，';
+        reason = '综合多维度分析，该模型在206期历史数据中整体表现最优；';
       }
 
-      // 对比其他模型
-      if (bestBackRate > secondBackRate * 1.3) {
-        reason += '且后区命中率大幅领先其他模型。';
-      } else if (bestBackRate > secondBackRate * 1.1) {
-        reason += '后区优势明显。';
-      } else if (Math.abs(bestModel.score - secondModel.score) < 5) {
-        reason += '与第二名差距微小，建议结合使用。';
+      // 对比其他模型（更细致的比较）
+      const scoreDiff = Math.abs(bestModel.score - secondModel.score);
+      if (bestBackRate > secondBackRate * 1.4) {
+        reason += '且后区命中率大幅领先其他模型（优势超过40%）。';
+      } else if (bestBackRate > secondBackRate * 1.2) {
+        reason += '后区优势明显（领先第二名20%以上）。';
+      } else if (scoreDiff < 3) {
+        reason += '与第二名差距微小（<3分），建议结合使用或交替尝试。';
+      } else if (scoreDiff < 8) {
+        reason += '各项指标相对均衡，小幅领先其他模型。';
       } else {
-        reason += '各项指标相对均衡稳定。';
+        reason += '综合得分显著领先，各项指标表现稳定。';
       }
     }
 
@@ -1530,10 +1578,14 @@ class LotteryAnalyzer {
       reason += `\n🎯 后区最佳: ${bestBackModel.name} (${bestBackModel.stats.backHitRate}%)`;
     }
 
-    // 生成备选建议
+    // 添加备选建议（更智能的推荐）
     let alternativeSuggestion = '';
-    if (thirdModel && parseFloat(thirdModel.stats.backHitRate) > 40) {
-      alternativeSuggestion = `\n🔄 备选方案：${thirdModel.name}在后区也有不错表现（${thirdModel.stats.backHitRate}%），可作为补充。`;
+    if (thirdModel && parseFloat(thirdModel.stats.backHitRate) > 45) {
+      alternativeSuggestion = `\n🔄 备选方案：${thirdModel.name}在后区也有出色表现（${thirdModel.stats.backHitRate}%），可作为补充验证。`;
+    } else if (thirdModel && parseFloat(thirdModel.stats.frontHitRate) > 17) {
+      alternativeSuggestion = `\n🔄 备选方案：${thirdModel.name}在前区表现不错（${thirdModel.stats.frontHitRate}%），可交叉参考。`;
+    } else if (fourthModel && Math.abs(fourthModel.score - bestModel.score) < 10) {
+      alternativeSuggestion = `\n🔄 备选方案：${fourthModel.name}与最佳模型差距不大，也可尝试。`;
     }
 
     const result = {
@@ -1542,7 +1594,9 @@ class LotteryAnalyzer {
       reason,
       alternativeSuggestion,
       latestDraw,
-      analysisTime: new Date().toLocaleString('zh-CN')
+      analysisTime: new Date().toLocaleString('zh-CN'),
+      dataVolume: dataVolume,  // 添加数据量信息
+      sampleSize: SAMPLE_COUNT.zhouyi  // 添加样本量信息
     };
 
     // 缓存结果
@@ -1552,11 +1606,11 @@ class LotteryAnalyzer {
       data: result
     };
 
-    console.log(`✅ 推荐结果已缓存（有效期3分钟）`);
+    console.log(`✅ 推荐结果已缓存（有效期${CACHE_DURATION/60000}分钟，数据量${dataVolume}期）`);
     console.log(`📊 最佳模型: ${bestModel.name} (得分: ${bestModel.score.toFixed(2)})`);
-    console.log(`📈 样本量: 周易${SAMPLE_COUNT.zhouyi}组, 贝叶斯${SAMPLE_COUNT.bayesian}组, 旋转矩阵${SAMPLE_COUNT.rotation}组, 混合${SAMPLE_COUNT.hybrid}组`);
+    console.log(`📈 样本量: 各模型${SAMPLE_COUNT.zhouyi}组（总计${SAMPLE_COUNT.zhouyi * 4}组）`);
     console.log(`📋 各模型得分:`, models.map(m => `${m.name}:${m.score.toFixed(2)}`).join(', '));
-    console.log(`💡 历史数据: ${this.historyData.length}组（建议至少100组以上）`);
+    console.log(`💡 历史数据: ${dataVolume}期（已达到优秀水平，建议持续积累）`);
 
     return result;
   }

@@ -1286,6 +1286,124 @@ class LotteryAnalyzer {
     this.cache.modelPerformance = result;
     return result;
   }
+
+  /**
+   * 基于最新开奖号码分析各模型表现并给出推荐
+   * @param {Object} latestDraw - 最新开奖号码 {front: [6,7,18,21,30], back: [1,5]}
+   * @returns {Object} - 包含推荐信息和详细分析
+   */
+  analyzeAndRecommendModel(latestDraw) {
+    if (!latestDraw || !latestDraw.front || !latestDraw.back) {
+      return null;
+    }
+
+    // 生成各模型的预测结果
+    const zhouyiPredictions = [];
+    for (let i = 0; i < 3; i++) {
+      const pred = this.generateZhouyiPrediction(i);
+      zhouyiPredictions.push({
+        front: pred.slice(0, 5),
+        back: pred.slice(5)
+      });
+    }
+
+    const bayesianPred = this.generateBayesianPrediction();
+    const bayesianPredictions = [{
+      front: bayesianPred.slice(0, 5),
+      back: bayesianPred.slice(5)
+    }];
+
+    const rotationPredictions = this.generateRotationMatrixPrediction(5);
+
+    // 计算每个模型的命中率
+    const calculateHitRate = (predictions, actual) => {
+      let totalFrontHits = 0;
+      let totalBackHits = 0;
+      let totalPredictions = predictions.length;
+
+      predictions.forEach(pred => {
+        const frontSet = new Set(actual.front);
+        const backSet = new Set(actual.back);
+        
+        pred.front.forEach(num => {
+          if (frontSet.has(num)) totalFrontHits++;
+        });
+        
+        pred.back.forEach(num => {
+          if (backSet.has(num)) totalBackHits++;
+        });
+      });
+
+      return {
+        frontHitRate: (totalFrontHits / (totalPredictions * 5) * 100).toFixed(1),
+        backHitRate: (totalBackHits / (totalPredictions * 2) * 100).toFixed(1),
+        totalHits: totalFrontHits + totalBackHits,
+        avgTotalHits: ((totalFrontHits + totalBackHits) / totalPredictions).toFixed(2)
+      };
+    };
+
+    const zhouyiStats = calculateHitRate(zhouyiPredictions, latestDraw);
+    const bayesianStats = calculateHitRate(bayesianPredictions, latestDraw);
+    const rotationStats = calculateHitRate(rotationPredictions, latestDraw);
+
+    // 综合评分（前区40% + 后区60%，因为后区更难命中）
+    const calculateScore = (stats) => {
+      return parseFloat(stats.frontHitRate) * 0.4 + parseFloat(stats.backHitRate) * 0.6;
+    };
+
+    const models = [
+      {
+        name: '周易时空',
+        key: 'zhouyi',
+        stats: zhouyiStats,
+        score: calculateScore(zhouyiStats),
+        predictions: zhouyiPredictions
+      },
+      {
+        name: '贝叶斯动态',
+        key: 'bayesian',
+        stats: bayesianStats,
+        score: calculateScore(bayesianStats),
+        predictions: bayesianPredictions
+      },
+      {
+        name: '旋转矩阵',
+        key: 'rotation',
+        stats: rotationStats,
+        score: calculateScore(rotationStats),
+        predictions: rotationPredictions
+      }
+    ];
+
+    // 按分数排序
+    models.sort((a, b) => b.score - a.score);
+
+    const bestModel = models[0];
+    const secondModel = models[1];
+
+    // 生成推荐理由
+    let reason = '';
+    if (parseFloat(bestModel.stats.backHitRate) > 50) {
+      reason = `该模型在后区预测上表现出色（命中率${bestModel.stats.backHitRate}%），`; 
+    } else if (parseFloat(bestModel.stats.frontHitRate) > 15) {
+      reason = `该模型在前区预测上表现较好（命中率${bestModel.stats.frontHitRate}%），`;
+    } else {
+      reason = '综合各维度分析，该模型整体表现最优，';
+    }
+
+    if (parseFloat(bestModel.stats.backHitRate) > parseFloat(secondModel.stats.backHitRate) * 1.2) {
+      reason += '且后区命中率明显领先其他模型。';
+    } else {
+      reason += '各项指标相对均衡。';
+    }
+
+    return {
+      recommendedModel: bestModel,
+      allModels: models,
+      reason,
+      latestDraw
+    };
+  }
 }
 
 export default LotteryAnalyzer;

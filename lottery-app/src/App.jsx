@@ -435,6 +435,69 @@ function App() {
           );
         })()}
 
+        {/* 智能模型推荐 */}
+        {(() => {
+          const latestDraw = getLatestDrawFromData();
+          if (!latestDraw) return null;
+          
+          // 分析并获取推荐
+          const recommendation = analyzer.analyzeAndRecommendModel(latestDraw);
+          if (!recommendation) return null;
+          
+          const { recommendedModel, allModels, reason } = recommendation;
+          
+          return (
+            <section className="card model-recommendation-card">
+              <h2>💡 智能推荐模型</h2>
+              <div className="recommendation-content">
+                <div className="recommended-model">
+                  <div className="recommend-badge">⭐ 推荐使用</div>
+                  <div className="model-name">{recommendedModel.name}</div>
+                  <div className="recommend-reason">{reason}</div>
+                  
+                  <div className="model-stats">
+                    <div className="stat-item">
+                      <span className="stat-label">前区命中率</span>
+                      <span className="stat-value">{recommendedModel.stats.frontHitRate}%</span>
+                    </div>
+                    <div className="stat-item">
+                      <span className="stat-label">后区命中率</span>
+                      <span className="stat-value highlight">{recommendedModel.stats.backHitRate}%</span>
+                    </div>
+                    <div className="stat-item">
+                      <span className="stat-label">平均总命中</span>
+                      <span className="stat-value">{recommendedModel.stats.avgTotalHits}/7</span>
+                    </div>
+                  </div>
+                </div>
+                
+                <div className="all-models-comparison">
+                  <div className="comparison-title">各模型表现对比</div>
+                  <div className="comparison-list">
+                    {allModels.map((model, idx) => (
+                      <div 
+                        key={model.key} 
+                        className={`comparison-item ${idx === 0 ? 'best' : ''}`}
+                      >
+                        <div className="model-rank">#{idx + 1}</div>
+                        <div className="model-info">
+                          <div className="model-name-small">{model.name}</div>
+                          <div className="model-stats-small">
+                            <span>前区: {model.stats.frontHitRate}%</span>
+                            <span>后区: {model.stats.backHitRate}%</span>
+                            <span>总计: {model.stats.avgTotalHits}/7</span>
+                          </div>
+                        </div>
+                        {idx === 0 && <div className="best-badge">最佳</div>}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </section>
+          );
+        })()}
+
         <section className="card">
           <h2>📝 数据管理</h2>
           <div className="add-number-form">

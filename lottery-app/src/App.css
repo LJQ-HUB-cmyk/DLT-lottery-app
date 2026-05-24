@@ -972,3 +972,185 @@ button.success {
   background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
   color: white;
 }
+
+/* 智能模型推荐卡片 */
+.model-recommendation-card {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border: none;
+}
+
+.model-recommendation-card h2 {
+  color: white;
+  border-bottom-color: rgba(255, 255, 255, 0.3);
+}
+
+.recommendation-content {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.recommended-model {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 12px;
+  padding: 20px;
+  backdrop-filter: blur(10px);
+}
+
+.recommend-badge {
+  display: inline-block;
+  background: linear-gradient(135deg, #ffd700 0%, #ffed4e 100%);
+  color: #333;
+  padding: 6px 16px;
+  border-radius: 20px;
+  font-weight: bold;
+  font-size: 0.9em;
+  margin-bottom: 12px;
+  box-shadow: 0 2px 8px rgba(255, 215, 0, 0.4);
+}
+
+.recommended-model .model-name {
+  font-size: 1.8em;
+  font-weight: bold;
+  margin-bottom: 10px;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.recommend-reason {
+  font-size: 1em;
+  line-height: 1.6;
+  margin-bottom: 15px;
+  opacity: 0.95;
+}
+
+.model-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 15px;
+  margin-top: 15px;
+}
+
+.stat-item {
+  background: rgba(255, 255, 255, 0.1);
+  padding: 12px;
+  border-radius: 8px;
+  text-align: center;
+}
+
+.stat-label {
+  display: block;
+  font-size: 0.85em;
+  opacity: 0.8;
+  margin-bottom: 5px;
+}
+
+.stat-value {
+  display: block;
+  font-size: 1.4em;
+  font-weight: bold;
+}
+
+.stat-value.highlight {
+  color: #ffd700;
+  text-shadow: 0 0 10px rgba(255, 215, 0, 0.5);
+}
+
+.all-models-comparison {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  padding: 20px;
+  backdrop-filter: blur(10px);
+}
+
+.comparison-title {
+  font-size: 1.1em;
+  font-weight: bold;
+  margin-bottom: 15px;
+  text-align: center;
+}
+
+.comparison-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.comparison-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: rgba(255, 255, 255, 0.08);
+  padding: 12px;
+  border-radius: 8px;
+  transition: all 0.3s ease;
+  position: relative;
+}
+
+.comparison-item.best {
+  background: rgba(255, 215, 0, 0.15);
+  border: 2px solid rgba(255, 215, 0, 0.5);
+}
+
+.comparison-item:hover {
+  background: rgba(255, 255, 255, 0.15);
+  transform: translateX(5px);
+}
+
+.model-rank {
+  font-size: 1.2em;
+  font-weight: bold;
+  min-width: 30px;
+  text-align: center;
+}
+
+.model-info {
+  flex: 1;
+}
+
+.model-name-small {
+  font-weight: bold;
+  font-size: 1.1em;
+  margin-bottom: 5px;
+}
+
+.model-stats-small {
+  display: flex;
+  gap: 15px;
+  font-size: 0.85em;
+  opacity: 0.9;
+}
+
+.model-stats-small span {
+  white-space: nowrap;
+}
+
+.best-badge {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: linear-gradient(135deg, #ffd700 0%, #ffed4e 100%);
+  color: #333;
+  padding: 4px 12px;
+  border-radius: 12px;
+  font-size: 0.8em;
+  font-weight: bold;
+  box-shadow: 0 2px 8px rgba(255, 215, 0, 0.4);
+}
+
+/* 移动端适配 */
+@media (max-width: 768px) {
+  .model-stats {
+    grid-template-columns: 1fr;
+  }
+  
+  .model-stats-small {
+    flex-direction: column;
+    gap: 5px;
+  }
+  
+  .recommended-model .model-name {
+    font-size: 1.5em;
+  }
+}

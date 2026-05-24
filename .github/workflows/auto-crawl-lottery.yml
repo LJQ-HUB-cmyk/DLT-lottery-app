@@ -1,0 +1,67 @@
+name: Auto Crawl Lottery Results
+
+on:
+  schedule:
+    # 每周一、三、六晚上 22:00 (UTC+8) 执行，即开奖后30分钟
+    # UTC时间是14:00
+    - cron: '0 14 * * 1,3,6'
+  
+  # 允许手动触发
+  workflow_dispatch:
+    inputs:
+      test_mode:
+        description: '测试模式（不提交更改）'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+
+jobs:
+  crawl-lottery:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+      with:
+        fetch-depth: 0
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+    
+    - name: Install dependencies
+      run: |
+        pip install requests beautifulsoup4 lxml
+    
+    - name: Run lottery crawler
+      id: crawl
+      run: |
+        cd scripts
+        python crawl_final.py
+        
+    - name: Check for changes
+      id: git-check
+      run: |
+        git diff --quiet || echo "has_changes=true" >> $GITHUB_OUTPUT
+        
+    - name: Commit and push if changed
+      if: steps.git-check.outputs.has_changes == 'true' && github.event.inputs.test_mode != 'true'
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        git add lottery-app/src/data/lottery-history.txt
+        git commit -m "🤖 Auto: Update lottery results $(date +'%Y-%m-%d %H:%M')"
+        git push
+        
+    - name: Summary
+      if: always()
+      run: |
+        if [ "${{ steps.git-check.outputs.has_changes }}" == "true" ]; then
+          echo "✅ New lottery data found and committed"
+        else
+          echo "ℹ️ No new lottery data or test mode"
+        fi

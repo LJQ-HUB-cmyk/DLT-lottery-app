@@ -112,6 +112,7 @@ function App() {
   const [newNumber, setNewNumber] = useState('');
   const [showHistory, setShowHistory] = useState(false);
   const [groupsPerModel, setGroupsPerModel] = useState(5);
+  const [recommendSampleSize, setRecommendSampleSize] = useState(80); // 推荐算法样本量
   const [copySuccess, setCopySuccess] = useState(false);
 
   // 从数据中获取最后一组（最新一期）号码
@@ -443,8 +444,8 @@ function App() {
           const latestDraw = getLatestDrawFromData();
           if (!latestDraw) return null;
           
-          // 分析并获取推荐
-          const recommendation = analyzer.analyzeAndRecommendModel(latestDraw);
+          // 分析并获取推荐（传入用户选择的样本量）
+          const recommendation = analyzer.analyzeAndRecommendModel(latestDraw, recommendSampleSize);
           if (!recommendation) return null;
           
           const { recommendedModel, allModels, reason, alternativeSuggestion, analysisTime, dataVolume, sampleSize } = recommendation;
@@ -614,6 +615,22 @@ function App() {
                 </label>
               </div>
             ))}
+          </div>
+          
+          <div className="generate-control">
+            <label>🎯 推荐算法样本量：</label>
+            <select 
+              value={recommendSampleSize}
+              onChange={(e) => setRecommendSampleSize(parseInt(e.target.value))}
+              className="sample-size-select"
+            >
+              <option value={50}>50组（快速）</option>
+              <option value={60}>60组（标准）</option>
+              <option value={80}>80组（推荐）</option>
+              <option value={100}>100组（精确）</option>
+              <option value={150}>150组（极致）</option>
+            </select>
+            <span className="control-hint">影响智能推荐的准确性</span>
           </div>
           
           <div className="generate-control">

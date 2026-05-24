@@ -1292,13 +1292,14 @@ class LotteryAnalyzer {
    * @param {Object} latestDraw - 最新开奖号码 {front: [6,7,18,21,30], back: [1,5]}
    * @returns {Object} - 包含推荐信息和详细分析
    */
-  analyzeAndRecommendModel(latestDraw) {
+  analyzeAndRecommendModel(latestDraw, customSampleSize = null) {
     if (!latestDraw || !latestDraw.front || !latestDraw.back) {
       return null;
     }
 
-    // 生成缓存键（基于最新开奖号码）
-    const cacheKey = `recommendation_${latestDraw.front.join(',')}_${latestDraw.back.join(',')}`;
+    // 生成缓存键（基于最新开奖号码和样本量）
+    const sampleSizeKey = customSampleSize || 'auto';
+    const cacheKey = `recommendation_${latestDraw.front.join(',')}_${latestDraw.back.join(',')}_${sampleSizeKey}`;
     const now = Date.now();
     
     // 根据历史数据量动态调整缓存时间
@@ -1328,30 +1329,43 @@ class LotteryAnalyzer {
 
     console.log(`🔄 开始重新计算推荐结果（大样本分析，历史数据${dataVolume}期）...`);
 
-    // 生成各模型的预测结果（根据数据量动态调整样本数）
-    // 数据量越大，样本数越多，统计越准确
+    // 生成各模型的预测结果（根据用户选择或数据量动态调整样本数）
     let SAMPLE_COUNT;
-    if (dataVolume >= 200) {
+    
+    // 如果用户指定了样本量，使用用户的选择
+    if (customSampleSize) {
       SAMPLE_COUNT = {
-        zhouyi: 80,      // 周易：80组
-        bayesian: 80,    // 贝叶斯：80组
-        rotation: 80,    // 旋转矩阵：80组（16次×5组）
-        hybrid: 80       // 混合模型：80组
+        zhouyi: customSampleSize,
+        bayesian: customSampleSize,
+        rotation: customSampleSize,
+        hybrid: customSampleSize
       };
-    } else if (dataVolume >= 100) {
-      SAMPLE_COUNT = {
-        zhouyi: 60,
-        bayesian: 60,
-        rotation: 60,
-        hybrid: 60
-      };
+      console.log(`📊 使用用户指定的样本量: ${customSampleSize}组/模型`);
     } else {
-      SAMPLE_COUNT = {
-        zhouyi: 50,
-        bayesian: 50,
-        rotation: 50,
-        hybrid: 50
-      };
+      // 否则根据数据量自动调整
+      if (dataVolume >= 200) {
+        SAMPLE_COUNT = {
+          zhouyi: 80,      // 周易：80组
+          bayesian: 80,    // 贝叶斯：80组
+          rotation: 80,    // 旋转矩阵：80组（16次×5组）
+          hybrid: 80       // 混合模型：80组
+        };
+      } else if (dataVolume >= 100) {
+        SAMPLE_COUNT = {
+          zhouyi: 60,
+          bayesian: 60,
+          rotation: 60,
+          hybrid: 60
+        };
+      } else {
+        SAMPLE_COUNT = {
+            zhouyi: 50,
+          bayesian: 50,
+          rotation: 50,
+          hybrid: 50
+        };
+      }
+      console.log(`📊 使用自动样本量: ${SAMPLE_COUNT.zhouyi}组/模型（基于${dataVolume}期数据）`);
     }
 
     const zhouyiPredictions = [];

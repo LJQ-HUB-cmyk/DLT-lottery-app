@@ -572,6 +572,33 @@ textarea:focus {
   color: #606266;
 }
 
+.sample-size-select {
+  padding: 6px 12px;
+  border: 1px solid #dcdfe6;
+  border-radius: 6px;
+  font-size: 0.95em;
+  background: white;
+  cursor: pointer;
+  min-width: 140px;
+  transition: all 0.3s;
+}
+
+.sample-size-select:hover {
+  border-color: #409eff;
+}
+
+.sample-size-select:focus {
+  outline: none;
+  border-color: #409eff;
+  box-shadow: 0 0 0 2px rgba(64, 158, 255, 0.2);
+}
+
+.control-hint {
+  font-size: 0.85em;
+  color: #909399;
+  margin-left: 5px;
+}
+
 .action-buttons {
   display: flex;
   gap: 10px;

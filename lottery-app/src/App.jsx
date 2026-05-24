@@ -444,7 +444,7 @@ function App() {
           const recommendation = analyzer.analyzeAndRecommendModel(latestDraw);
           if (!recommendation) return null;
           
-          const { recommendedModel, allModels, reason } = recommendation;
+          const { recommendedModel, allModels, reason, alternativeSuggestion, analysisTime } = recommendation;
           
           return (
             <section className="card model-recommendation-card">
@@ -453,7 +453,11 @@ function App() {
                 <div className="recommended-model">
                   <div className="recommend-badge">⭐ 推荐使用</div>
                   <div className="model-name">{recommendedModel.name}</div>
-                  <div className="recommend-reason">{reason}</div>
+                  <div className="recommend-reason">
+                    {reason.split('\n').map((line, idx) => (
+                      <div key={idx}>{line}</div>
+                    ))}
+                  </div>
                   
                   <div className="model-stats">
                     <div className="stat-item">
@@ -468,11 +472,19 @@ function App() {
                       <span className="stat-label">平均总命中</span>
                       <span className="stat-value">{recommendedModel.stats.avgTotalHits}/7</span>
                     </div>
+                    <div className="stat-item">
+                      <span className="stat-label">样本数量</span>
+                      <span className="stat-value">{recommendedModel.stats.sampleCount}组</span>
+                    </div>
                   </div>
+                  
+                  {alternativeSuggestion && (
+                    <div className="alternative-suggestion">{alternativeSuggestion}</div>
+                  )}
                 </div>
                 
                 <div className="all-models-comparison">
-                  <div className="comparison-title">各模型表现对比</div>
+                  <div className="comparison-title">📊 全部模型表现对比（共{allModels.length}个）</div>
                   <div className="comparison-list">
                     {allModels.map((model, idx) => (
                       <div 
@@ -481,16 +493,30 @@ function App() {
                       >
                         <div className="model-rank">#{idx + 1}</div>
                         <div className="model-info">
-                          <div className="model-name-small">{model.name}</div>
+                          <div className="model-name-small">
+                            {model.name}
+                            {idx === 0 && <span className="crown-icon">👑</span>}
+                          </div>
+                          <div className="model-characteristics">
+                            {model.characteristics.map((char, cIdx) => (
+                              <span key={cIdx} className="char-tag">{char}</span>
+                            ))}
+                          </div>
                           <div className="model-stats-small">
-                            <span>前区: {model.stats.frontHitRate}%</span>
-                            <span>后区: {model.stats.backHitRate}%</span>
-                            <span>总计: {model.stats.avgTotalHits}/7</span>
+                            <span className="front-stat">前区: {model.stats.frontHitRate}%</span>
+                            <span className="back-stat">后区: {model.stats.backHitRate}%</span>
+                            <span className="total-stat">总计: {model.stats.avgTotalHits}/7</span>
+                            <span className="sample-stat">({model.stats.sampleCount}组)</span>
                           </div>
                         </div>
                         {idx === 0 && <div className="best-badge">最佳</div>}
                       </div>
                     ))}
+                  </div>
+                  
+                  <div className="analysis-footer">
+                    <span className="analysis-time">分析时间: {analysisTime}</span>
+                    <span className="analysis-tip">💡 提示：建议结合多个模型使用，提高覆盖率</span>
                   </div>
                 </div>
               </div>

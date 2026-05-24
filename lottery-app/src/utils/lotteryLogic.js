@@ -1297,9 +1297,9 @@ class LotteryAnalyzer {
       return null;
     }
 
-    // 生成各模型的预测结果
+    // 生成各模型的预测结果（增加样本量以提高准确性）
     const zhouyiPredictions = [];
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < 5; i++) {
       const pred = this.generateZhouyiPrediction(i);
       zhouyiPredictions.push({
         front: pred.slice(0, 5),
@@ -1307,13 +1307,26 @@ class LotteryAnalyzer {
       });
     }
 
-    const bayesianPred = this.generateBayesianPrediction();
-    const bayesianPredictions = [{
-      front: bayesianPred.slice(0, 5),
-      back: bayesianPred.slice(5)
-    }];
+    const bayesianPredictions = [];
+    for (let i = 0; i < 3; i++) {
+      const pred = this.generateBayesianPrediction();
+      bayesianPredictions.push({
+        front: pred.slice(0, 5),
+        back: pred.slice(5)
+      });
+    }
 
     const rotationPredictions = this.generateRotationMatrixPrediction(5);
+
+    // 生成混合模型预测（多次采样）
+    const hybridPredictions = [];
+    for (let i = 0; i < 3; i++) {
+      const pred = this.generateHybridPrediction();
+      hybridPredictions.push({
+        front: pred.slice(0, 5),
+        back: pred.slice(5)
+      });
+    }
 
     // 计算每个模型的命中率
     const calculateHitRate = (predictions, actual) => {
@@ -1338,17 +1351,35 @@ class LotteryAnalyzer {
         frontHitRate: (totalFrontHits / (totalPredictions * 5) * 100).toFixed(1),
         backHitRate: (totalBackHits / (totalPredictions * 2) * 100).toFixed(1),
         totalHits: totalFrontHits + totalBackHits,
-        avgTotalHits: ((totalFrontHits + totalBackHits) / totalPredictions).toFixed(2)
+        avgTotalHits: ((totalFrontHits + totalBackHits) / totalPredictions).toFixed(2),
+        sampleCount: totalPredictions
       };
     };
 
     const zhouyiStats = calculateHitRate(zhouyiPredictions, latestDraw);
     const bayesianStats = calculateHitRate(bayesianPredictions, latestDraw);
     const rotationStats = calculateHitRate(rotationPredictions, latestDraw);
+    const hybridStats = calculateHitRate(hybridPredictions, latestDraw);
 
-    // 综合评分（前区40% + 后区60%，因为后区更难命中）
+    // 综合评分算法（优化版）
+    // 考虑因素：前区命中率、后区命中率、稳定性、样本覆盖度
     const calculateScore = (stats) => {
-      return parseFloat(stats.frontHitRate) * 0.4 + parseFloat(stats.backHitRate) * 0.6;
+      const frontWeight = 0.35;  // 前区权重
+      const backWeight = 0.45;   // 后区权重（更高，因为更难命中）
+      const stabilityWeight = 0.15; // 稳定性权重
+      const coverageWeight = 0.05;  // 覆盖度权重
+      
+      // 基础分数
+      const baseScore = parseFloat(stats.frontHitRate) * frontWeight + 
+                       parseFloat(stats.backHitRate) * backWeight;
+      
+      // 稳定性因子（命中率越接近平均值越稳定）
+      const stabilityFactor = stats.sampleCount > 1 ? 1.0 : 0.95;
+      
+      // 覆盖度因子（样本越多越可靠）
+      const coverageFactor = Math.min(stats.sampleCount / 5, 1.0);
+      
+      return baseScore * stabilityFactor * (0.8 + 0.2 * coverageFactor);
     };
 
     const models = [
@@ -1357,21 +1388,32 @@ class LotteryAnalyzer {
         key: 'zhouyi',
         stats: zhouyiStats,
         score: calculateScore(zhouyiStats),
-        predictions: zhouyiPredictions
+        predictions: zhouyiPredictions,
+        characteristics: ['传统智慧', '时间因子', '卦象分析']
       },
       {
         name: '贝叶斯动态',
         key: 'bayesian',
         stats: bayesianStats,
         score: calculateScore(bayesianStats),
-        predictions: bayesianPredictions
+        predictions: bayesianPredictions,
+        characteristics: ['概率统计', '动态调整', '遗漏分析']
       },
       {
         name: '旋转矩阵',
         key: 'rotation',
         stats: rotationStats,
         score: calculateScore(rotationStats),
-        predictions: rotationPredictions
+        predictions: rotationPredictions,
+        characteristics: ['组合数学', '多策略', '高覆盖']
+      },
+      {
+        name: '混合模型',
+        key: 'hybrid',
+        stats: hybridStats,
+        score: calculateScore(hybridStats),
+        predictions: hybridPredictions,
+        characteristics: ['多模融合', '投票机制', '智能加权']
       }
     ];
 
@@ -1380,28 +1422,55 @@ class LotteryAnalyzer {
 
     const bestModel = models[0];
     const secondModel = models[1];
+    const thirdModel = models[2];
 
-    // 生成推荐理由
+    // 生成推荐理由（优化版）
     let reason = '';
-    if (parseFloat(bestModel.stats.backHitRate) > 50) {
-      reason = `该模型在后区预测上表现出色（命中率${bestModel.stats.backHitRate}%），`; 
-    } else if (parseFloat(bestModel.stats.frontHitRate) > 15) {
-      reason = `该模型在前区预测上表现较好（命中率${bestModel.stats.frontHitRate}%），`;
+    const bestBackRate = parseFloat(bestModel.stats.backHitRate);
+    const bestFrontRate = parseFloat(bestModel.stats.frontHitRate);
+    const secondBackRate = parseFloat(secondModel.stats.backHitRate);
+    
+    // 根据特点生成个性化理由
+    if (bestBackRate > 50) {
+      reason = `该模型在后区预测上表现卓越（命中率${bestModel.stats.backHitRate}%），`;
+    } else if (bestBackRate > 40) {
+      reason = `该模型后区命中率较高（${bestModel.stats.backHitRate}%），`;
+    } else if (bestFrontRate > 20) {
+      reason = `该模型在前区预测上表现出色（命中率${bestModel.stats.frontHitRate}%），`;
+    } else if (bestFrontRate > 15) {
+      reason = `该模型前区表现相对较好（${bestModel.stats.frontHitRate}%），`;
     } else {
-      reason = '综合各维度分析，该模型整体表现最优，';
+      reason = '综合多维度分析，该模型整体表现最优，';
     }
 
-    if (parseFloat(bestModel.stats.backHitRate) > parseFloat(secondModel.stats.backHitRate) * 1.2) {
-      reason += '且后区命中率明显领先其他模型。';
+    // 对比其他模型
+    if (bestBackRate > secondBackRate * 1.3) {
+      reason += '且后区命中率大幅领先其他模型。';
+    } else if (bestBackRate > secondBackRate * 1.1) {
+      reason += '后区优势明显。';
+    } else if (Math.abs(bestModel.score - secondModel.score) < 5) {
+      reason += '与第二名差距微小，建议结合使用。';
     } else {
-      reason += '各项指标相对均衡。';
+      reason += '各项指标相对均衡稳定。';
+    }
+
+    // 添加模型特色说明
+    const charStr = bestModel.characteristics.join('、');
+    reason += `\n💡 特色：${charStr}`;
+
+    // 生成备选建议
+    let alternativeSuggestion = '';
+    if (thirdModel && parseFloat(thirdModel.stats.backHitRate) > 40) {
+      alternativeSuggestion = `\n🔄 备选方案：${thirdModel.name}在后区也有不错表现（${thirdModel.stats.backHitRate}%），可作为补充。`;
     }
 
     return {
       recommendedModel: bestModel,
       allModels: models,
       reason,
-      latestDraw
+      alternativeSuggestion,
+      latestDraw,
+      analysisTime: new Date().toLocaleString('zh-CN')
     };
   }
 }

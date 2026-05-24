@@ -1019,9 +1019,19 @@ button.success {
 
 .recommend-reason {
   font-size: 1em;
-  line-height: 1.6;
+  line-height: 1.8;
   margin-bottom: 15px;
   opacity: 0.95;
+}
+
+.alternative-suggestion {
+  margin-top: 15px;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  border-left: 3px solid #ffd700;
+  font-size: 0.95em;
+  line-height: 1.6;
 }
 
 .model-stats {
@@ -1112,6 +1122,28 @@ button.success {
   font-weight: bold;
   font-size: 1.1em;
   margin-bottom: 5px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.crown-icon {
+  font-size: 1.2em;
+}
+
+.model-characteristics {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.char-tag {
+  background: rgba(255, 255, 255, 0.15);
+  padding: 3px 8px;
+  border-radius: 10px;
+  font-size: 0.75em;
+  opacity: 0.9;
 }
 
 .model-stats-small {
@@ -1119,10 +1151,29 @@ button.success {
   gap: 15px;
   font-size: 0.85em;
   opacity: 0.9;
+  flex-wrap: wrap;
 }
 
 .model-stats-small span {
   white-space: nowrap;
+}
+
+.front-stat {
+  color: #ffecd2;
+}
+
+.back-stat {
+  color: #ffd700;
+  font-weight: bold;
+}
+
+.total-stat {
+  color: #fff;
+}
+
+.sample-stat {
+  opacity: 0.7;
+  font-style: italic;
 }
 
 .best-badge {
@@ -1139,10 +1190,31 @@ button.success {
   box-shadow: 0 2px 8px rgba(255, 215, 0, 0.4);
 }
 
+.analysis-footer {
+  margin-top: 15px;
+  padding-top: 15px;
+  border-top: 1px solid rgba(255, 255, 255, 0.2);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.analysis-time {
+  font-size: 0.85em;
+  opacity: 0.8;
+}
+
+.analysis-tip {
+  font-size: 0.9em;
+  opacity: 0.9;
+}
+
 /* 移动端适配 */
 @media (max-width: 768px) {
   .model-stats {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, 1fr);
   }
   
   .model-stats-small {
@@ -1152,5 +1224,14 @@ button.success {
   
   .recommended-model .model-name {
     font-size: 1.5em;
+  }
+  
+  .analysis-footer {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  
+  .model-characteristics {
+    justify-content: flex-start;
   }
 }

@@ -121,6 +121,7 @@ function App() {
   const [lastGenerateTime, setLastGenerateTime] = useState(null); // 上次生成时间
   const [refreshCount, setRefreshCount] = useState(0); // 今日刷新次数
   const [isGenerating, setIsGenerating] = useState(false); // 是否正在生成
+  const [hasGeneratedToday, setHasGeneratedToday] = useState(false); // 今日是否已生成（用户主动操作）
 
   // 从数据中获取最后一组（最新一期）号码
   const getLatestDrawFromData = () => {
@@ -228,13 +229,16 @@ function App() {
     if (cached) {
       try {
         const data = JSON.parse(cached);
+        // 只加载数据到状态，但不自动显示（需要用户点击生成后才显示）
         setTodayPrediction(data.prediction);
         setLastGenerateTime(data.timestamp);
         setRefreshCount(data.refreshCount || 0);
-        console.log('✅ 使用今日缓存:', data.timestamp);
+        console.log('✅ 检测到今日缓存:', data.timestamp, '(但不会自动显示)');
       } catch (e) {
         console.error('解析缓存失败:', e);
       }
+    } else {
+      console.log('ℹ️ 无今日缓存');
     }
   };
 
@@ -319,6 +323,9 @@ function App() {
       });
       setPredictions(results);
       setCopySuccess(false);
+      
+      // 标记今日已生成（用户主动操作）
+      setHasGeneratedToday(true);
       
       // 保存今日缓存（不包括周易）
       const shouldCache = !selectedModels.includes('zhouyi');
@@ -791,14 +798,14 @@ function App() {
             <span>组</span>
           </div>
           
-          {/* 根据是否有缓存显示不同的按钮 */}
-          {!todayPrediction ? (
-            // 无缓存：显示首次生成按钮
+          {/* 根据用户是否主动生成过显示不同的按钮 */}
+          {!hasGeneratedToday ? (
+            // 未生成：显示首次生成按钮
             <button onClick={handleGenerate} style={{backgroundColor: '#67c23a', boxShadow: '0 2px 4px rgba(103, 194, 58, 0.3)'}} disabled={isGenerating}>
               {isGenerating ? '⏳ 生成中...' : '🎯 一键生成号码'}
             </button>
           ) : (
-            // 有缓存：显示缓存信息横幅
+            // 已生成：显示缓存信息横幅
             <div className="cache-info-banner">
               <div className="cache-status">
                 <span className="status-icon">✅</span>

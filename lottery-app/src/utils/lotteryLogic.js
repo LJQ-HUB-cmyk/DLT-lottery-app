@@ -1385,7 +1385,10 @@ class LotteryAnalyzer {
         backHitRate: (totalBackHits / (totalPredictions * 2) * 100).toFixed(1),
         totalHits: totalFrontHits + totalBackHits,
         avgTotalHits: ((totalFrontHits + totalBackHits) / totalPredictions).toFixed(2),
-        sampleCount: totalPredictions
+        sampleCount: totalPredictions,
+        // 理论期望值（随机选择）
+        expectedFrontRate: 14.3,  // 5/35 = 14.3%
+        expectedBackRate: 16.7    // 2/12 = 16.7%
       };
     };
 
@@ -1394,15 +1397,13 @@ class LotteryAnalyzer {
     const rotationStats = calculateHitRate(rotationPredictions, latestDraw);
     const hybridStats = calculateHitRate(hybridPredictions, latestDraw);
 
-    // 综合评分算法（优化版）
+    // 综合评分算法（优化版 v4）
     // 考虑因素：前区命中率、后区命中率、稳定性、样本覆盖度
     const calculateScore = (stats) => {
-      const frontWeight = 0.35;  // 前区权重
-      const backWeight = 0.45;   // 后区权重（更高，因为更难命中）
-      const stabilityWeight = 0.15; // 稳定性权重
-      const coverageWeight = 0.05;  // 覆盖度权重
+      const frontWeight = 0.50;  // 前区权重50%（与前区难度匹配）
+      const backWeight = 0.50;   // 后区权重50%
       
-      // 基础分数
+      // 基础分数（等权重）
       const baseScore = parseFloat(stats.frontHitRate) * frontWeight + 
                        parseFloat(stats.backHitRate) * backWeight;
       

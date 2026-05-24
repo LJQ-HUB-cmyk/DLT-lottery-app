@@ -466,10 +466,12 @@ function App() {
                     <div className="stat-item">
                       <span className="stat-label">前区命中率</span>
                       <span className="stat-value">{recommendedModel.stats.frontHitRate}%</span>
+                      <span className="stat-hint">(期望: {recommendedModel.stats.expectedFrontRate}%)</span>
                     </div>
                     <div className="stat-item">
                       <span className="stat-label">后区命中率</span>
                       <span className="stat-value highlight">{recommendedModel.stats.backHitRate}%</span>
+                      <span className="stat-hint">(期望: {recommendedModel.stats.expectedBackRate}%)</span>
                     </div>
                     <div className="stat-item">
                       <span className="stat-label">平均总命中</span>
@@ -506,8 +508,8 @@ function App() {
                             ))}
                           </div>
                           <div className="model-stats-small">
-                            <span className="front-stat">前区: {model.stats.frontHitRate}%</span>
-                            <span className="back-stat">后区: {model.stats.backHitRate}%</span>
+                            <span className="front-stat">前区: {model.stats.frontHitRate}% (期望{model.stats.expectedFrontRate}%)</span>
+                            <span className="back-stat">后区: {model.stats.backHitRate}% (期望{model.stats.expectedBackRate}%)</span>
                             <span className="total-stat">总计: {model.stats.avgTotalHits}/7</span>
                             <span className="sample-stat">({model.stats.sampleCount}组)</span>
                           </div>

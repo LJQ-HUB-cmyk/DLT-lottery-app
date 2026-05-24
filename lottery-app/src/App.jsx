@@ -267,13 +267,8 @@ function App() {
     
     if (confirm('确定要重新生成吗？这将覆盖当前号码。')) {
       const newRefreshCount = refreshCount + 1;
-      handleGenerate(); // 调用生成函数，会自动保存新缓存
       setRefreshCount(newRefreshCount);
-      
-      // 更新缓存中的刷新次数
-      setTimeout(() => {
-        saveTodayPrediction(predictions, newRefreshCount);
-      }, 400);
+      handleGenerate(); // 调用生成函数，会自动保存新缓存
     }
   };
 
@@ -328,7 +323,9 @@ function App() {
       // 保存今日缓存（不包括周易）
       const shouldCache = !selectedModels.includes('zhouyi');
       if (shouldCache && results.length > 0) {
-        saveTodayPrediction(results, refreshCount);
+        // 如果是首次生成（无缓存），刷新次数为0；否则使用当前refreshCount
+        const newRefreshCount = todayPrediction ? refreshCount : 0;
+        saveTodayPrediction(results, newRefreshCount);
       }
       
       setIsGenerating(false);
@@ -794,12 +791,14 @@ function App() {
             <span>组</span>
           </div>
           
-          <button onClick={handleGenerate} style={{backgroundColor: '#67c23a', boxShadow: '0 2px 4px rgba(103, 194, 58, 0.3)'}} disabled={isGenerating}>
-            {isGenerating ? '⏳ 生成中...' : '🎯 一键生成号码'}
-          </button>
-          
-          {/* 显示今日缓存信息 */}
-          {todayPrediction && (
+          {/* 根据是否有缓存显示不同的按钮 */}
+          {!todayPrediction ? (
+            // 无缓存：显示首次生成按钮
+            <button onClick={handleGenerate} style={{backgroundColor: '#67c23a', boxShadow: '0 2px 4px rgba(103, 194, 58, 0.3)'}} disabled={isGenerating}>
+              {isGenerating ? '⏳ 生成中...' : '🎯 一键生成号码'}
+            </button>
+          ) : (
+            // 有缓存：显示缓存信息横幅
             <div className="cache-info-banner">
               <div className="cache-status">
                 <span className="status-icon">✅</span>

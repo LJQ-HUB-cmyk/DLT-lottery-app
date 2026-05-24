@@ -6,11 +6,11 @@
 
 ### 开奖时间
 - **每周一、三、六** 晚上 21:30 开奖
-- 脚本在开奖后 30 分钟（22:00）自动执行
+- 系统在开奖后5分钟开始尝试获取，每5分钟重试一次，最多3次
 
 ### 数据来源
 - 500.com 体彩大乐透频道
-- URL: http://kaijiang.500.com/shtml/dlt.shtml
+- URL: http://kaijiang.500.com/shtml/dlt/{期号}.shtml
 
 ## 🚀 使用方法
 
@@ -35,9 +35,11 @@ python scripts/crawl_lottery.py
 
 工作流配置在 `.github/workflows/auto-crawl-lottery.yml`
 
-#### 定时执行
-- 每周一、三、六 22:00 (UTC+8) 自动执行
-- Cron 表达式: `0 14 * * 1,3,6` (UTC 时间 14:00)
+#### 定时执行（智能重试机制）
+- **第一次尝试**: 21:35 (开奖后5分钟)
+- **第二次尝试**: 21:40 (如果第一次失败)
+- **第三次尝试**: 21:45 (如果前两次都失败)
+- Cron表达式: `35 13 * * 1,3,6`, `40 13 * * 1,3,6`, `45 13 * * 1,3,6`
 
 #### 手动触发
 1. 进入 GitHub Actions 页面
@@ -50,12 +52,13 @@ python scripts/crawl_lottery.py
 ```
 .
 ├── scripts/
-│   ├── crawl_lottery.py      # 主爬虫脚本
-│   └── requirements.txt       # Python 依赖
+│   ├── crawl_smart.py           # ⭐ 智能爬虫（主程序）
+│   ├── crawl_500com_simple.py   # 简单测试版
+│   ├── manual_update.py         # 手动添加工具
+│   └── requirements.txt         # Python 依赖
 ├── .github/
 │   └── workflows/
 │       └── auto-crawl-lottery.yml  # GitHub Actions 配置
-├── test_crawler.py            # 本地测试脚本
 └── lottery-app/
     └── src/
         └── data/
@@ -65,12 +68,19 @@ python scripts/crawl_lottery.py
 ## 🔧 技术实现
 
 ### 爬虫逻辑
-1. 访问 500.com 获取最新期号
-2. 解析期号对应的开奖页面
-3. 提取前区 5 个号码和后区 2 个号码
-4. 格式化为标准格式：`XX XX XX XX XX XX XX`
+1. 根据当前日期估算最新期号
+2. 访问 500.com 指定期号页面
+3. 从页面标题中提取开奖号码
+4. 验证号码格式和范围
 5. 检查是否已存在于历史文件
 6. 如为新数据，追加到文件末尾
+7. 如果失败，等待5分钟后由GitHub Actions再次触发
+
+### 智能重试机制
+- **第一次**: 开奖后5分钟 (21:35)
+- **第二次**: 如果第一次失败 (21:40)
+- **第三次**: 如果前两次都失败 (21:45)
+- 通过 GitHub Actions 的 cron 定时任务实现
 
 ### 数据格式
 ```

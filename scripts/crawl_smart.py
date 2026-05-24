@@ -72,8 +72,11 @@ class SmartLotteryCrawler:
         url = f'http://kaijiang.500.com/shtml/dlt/{period}.shtml'
         
         try:
-            response = self.session.get(url, timeout=10)
+            print(f"  正在请求: {url}")
+            response = self.session.get(url, timeout=15)
             response.encoding = 'utf-8'
+            
+            print(f"  HTTP状态码: {response.status_code}")
             
             if response.status_code != 200:
                 print(f"  ❌ HTTP {response.status_code}")
@@ -81,10 +84,11 @@ class SmartLotteryCrawler:
             
             soup = BeautifulSoup(response.text, 'html.parser')
             
-            # 从标题中提取号码
+            # 方法1: 从标题中提取号码
             title = soup.find('title')
             if title:
                 title_text = title.get_text()
+                print(f"  页面标题: {title_text[:100]}")
                 
                 # 匹配 "大乐透26056期开奖结果 06 07 18 21 30 + 01 05"
                 pattern = r'(\d{2})\s+(\d{2})\s+(\d{2})\s+(\d{2})\s+(\d{2})\s*[+]\s*(\d{2})\s+(\d{2})'
@@ -96,6 +100,7 @@ class SmartLotteryCrawler:
                     
                     # 验证号码范围
                     if all(1 <= n <= 35 for n in front) and all(1 <= n <= 12 for n in back):
+                        print(f"  ✅ 从标题提取成功")
                         return {
                             'period': period,
                             'front': front,
@@ -103,10 +108,34 @@ class SmartLotteryCrawler:
                             'source': '500.com'
                         }
             
+            # 方法2: 从页面内容中提取
+            text = soup.get_text()
+            # 查找7个连续数字的模式
+            pattern2 = r'(\d{2})\s+(\d{2})\s+(\d{2})\s+(\d{2})\s+(\d{2})\s+(\d{2})\s+(\d{2})'
+            matches = re.findall(pattern2, text)
+            
+            if matches:
+                for match in matches:
+                    nums = [int(x) for x in match]
+                    front = nums[:5]
+                    back = nums[5:]
+                    
+                    if all(1 <= n <= 35 for n in front) and all(1 <= n <= 12 for n in back):
+                        print(f"  ✅ 从页面内容提取成功")
+                        return {
+                            'period': period,
+                            'front': front,
+                            'back': back,
+                            'source': '500.com'
+                        }
+            
+            print(f"  ❌ 未能解析到号码")
             return None
             
         except Exception as e:
-            print(f"  ❌ 错误: {str(e)[:50]}")
+            print(f"  ❌ 错误: {str(e)}")
+            import traceback
+            traceback.print_exc()
             return None
     
     def find_latest_with_retry(self):

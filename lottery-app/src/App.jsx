@@ -221,6 +221,7 @@ function App() {
           else if (model === 'time_decay') comb = analyzer.generateTimeDecayPrediction();
           else if (model === 'bayesian') comb = analyzer.generateBayesianPrediction();
           else if (model === 'zhouyi') comb = analyzer.generateZhouyiPrediction(i);
+          else if (model === 'hybrid') comb = analyzer.generateHybridPrediction();
           else comb = analyzer.generateStatisticalPrediction(model);
           
           results.push({

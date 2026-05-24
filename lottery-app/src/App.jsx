@@ -114,6 +114,7 @@ function App() {
   const [groupsPerModel, setGroupsPerModel] = useState(5);
   const [recommendSampleSize, setRecommendSampleSize] = useState(80); // 推荐算法样本量
   const [copySuccess, setCopySuccess] = useState(false);
+  const [currentRecommendation, setCurrentRecommendation] = useState(null); // 当前推荐结果
 
   // 从数据中获取最后一组（最新一期）号码
   const getLatestDrawFromData = () => {
@@ -193,6 +194,22 @@ function App() {
   };  const clearCache = () => {
     localStorage.removeItem('lottery_data');
     setDataInput(defaultData);
+  };
+
+  // 立即分析推荐模型
+  const handleAnalyzeRecommendation = () => {
+    const latestDraw = getLatestDrawFromData();
+    if (!latestDraw) {
+      alert('请先加载历史数据！');
+      return;
+    }
+    
+    // 清除之前的推荐结果，触发重新计算
+    setCurrentRecommendation(null);
+    setTimeout(() => {
+      const recommendation = analyzer.analyzeAndRecommendModel(latestDraw, recommendSampleSize);
+      setCurrentRecommendation(recommendation);
+    }, 100);
   };
 
 
@@ -444,15 +461,76 @@ function App() {
           const latestDraw = getLatestDrawFromData();
           if (!latestDraw) return null;
           
-          // 分析并获取推荐（传入用户选择的样本量）
-          const recommendation = analyzer.analyzeAndRecommendModel(latestDraw, recommendSampleSize);
-          if (!recommendation) return null;
+          // 如果没有当前推荐结果，显示分析按钮
+          if (!currentRecommendation) {
+            return (
+              <section className="card model-recommendation-card">
+                <h2>💡 智能推荐模型</h2>
+                <div className="recommendation-setup">
+                  <div className="setup-info">
+                    <p>📊 基于最新开奖号码，智能分析各模型表现，为您推荐最佳预测模型</p>
+                    <div className="sample-size-control">
+                      <label>🎯 分析样本量：</label>
+                      <select 
+                        value={recommendSampleSize}
+                        onChange={(e) => setRecommendSampleSize(parseInt(e.target.value))}
+                        className="sample-size-select"
+                      >
+                        <option value={50}>50组（快速）</option>
+                        <option value={60}>60组（标准）</option>
+                        <option value={80}>80组（推荐）</option>
+                        <option value={100}>100组（精确）</option>
+                        <option value={150}>150组（极致）</option>
+                      </select>
+                      <span className="control-hint">影响推荐的准确性</span>
+                    </div>
+                  </div>
+                  <button 
+                    onClick={handleAnalyzeRecommendation} 
+                    className="analyze-button"
+                    style={{backgroundColor: '#67c23a', boxShadow: '0 2px 4px rgba(103, 194, 58, 0.3)'}}
+                  >
+                    🔍 立即分析推荐模型
+                  </button>
+                </div>
+              </section>
+            );
+          }
           
-          const { recommendedModel, allModels, reason, alternativeSuggestion, analysisTime, dataVolume, sampleSize } = recommendation;
+          // 显示推荐结果
+          const { recommendedModel, allModels, reason, alternativeSuggestion, analysisTime, dataVolume, sampleSize } = currentRecommendation;
           
           return (
             <section className="card model-recommendation-card">
-              <h2>💡 智能推荐模型</h2>
+              <div className="recommendation-header">
+                <h2>💡 智能推荐模型</h2>
+                <div className="header-controls">
+                  <div className="sample-size-control-inline">
+                    <label>样本量：</label>
+                    <select 
+                      value={recommendSampleSize}
+                      onChange={(e) => {
+                        setRecommendSampleSize(parseInt(e.target.value));
+                        // 样本量变化后自动重新分析
+                        setTimeout(() => handleAnalyzeRecommendation(), 100);
+                      }}
+                      className="sample-size-select-small"
+                    >
+                      <option value={50}>50组</option>
+                      <option value={60}>60组</option>
+                      <option value={80}>80组</option>
+                      <option value={100}>100组</option>
+                      <option value={150}>150组</option>
+                    </select>
+                  </div>
+                  <button 
+                    onClick={handleAnalyzeRecommendation} 
+                    className="re-analyze-button"
+                  >
+                    🔄 重新分析
+                  </button>
+                </div>
+              </div>
               <div className="recommendation-content">
                 <div className="recommended-model">
                   <div className="recommend-badge">⭐ 推荐使用</div>
@@ -615,22 +693,6 @@ function App() {
                 </label>
               </div>
             ))}
-          </div>
-          
-          <div className="generate-control">
-            <label>🎯 推荐算法样本量：</label>
-            <select 
-              value={recommendSampleSize}
-              onChange={(e) => setRecommendSampleSize(parseInt(e.target.value))}
-              className="sample-size-select"
-            >
-              <option value={50}>50组（快速）</option>
-              <option value={60}>60组（标准）</option>
-              <option value={80}>80组（推荐）</option>
-              <option value={100}>100组（精确）</option>
-              <option value={150}>150组（极致）</option>
-            </select>
-            <span className="control-hint">影响智能推荐的准确性</span>
           </div>
           
           <div className="generate-control">

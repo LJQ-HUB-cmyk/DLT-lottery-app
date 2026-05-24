@@ -1007,6 +1007,124 @@ button.success {
   border: none;
 }
 
+.recommendation-setup {
+  padding: 20px;
+}
+
+.setup-info p {
+  margin: 0 0 15px 0;
+  font-size: 1em;
+  opacity: 0.95;
+  line-height: 1.6;
+}
+
+.sample-size-control {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 20px;
+  background: rgba(255, 255, 255, 0.15);
+  padding: 12px 15px;
+  border-radius: 8px;
+}
+
+.sample-size-control label {
+  font-size: 0.95em;
+  font-weight: 500;
+}
+
+.analyze-button {
+  width: 100%;
+  padding: 14px 20px;
+  border: none;
+  border-radius: 8px;
+  font-size: 1.1em;
+  font-weight: bold;
+  cursor: pointer;
+  transition: all 0.3s;
+  color: white;
+}
+
+.analyze-button:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(103, 194, 58, 0.5) !important;
+}
+
+.recommendation-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+  padding-bottom: 15px;
+  border-bottom: 2px solid rgba(255, 255, 255, 0.2);
+}
+
+.recommendation-header h2 {
+  margin: 0;
+  flex: 1;
+}
+
+.header-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.sample-size-control-inline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sample-size-control-inline label {
+  font-size: 0.9em;
+  opacity: 0.9;
+}
+
+.sample-size-select-small {
+  padding: 6px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 6px;
+  font-size: 0.9em;
+  background: rgba(255, 255, 255, 0.15);
+  color: white;
+  cursor: pointer;
+  min-width: 100px;
+  transition: all 0.3s;
+}
+
+.sample-size-select-small:hover {
+  background: rgba(255, 255, 255, 0.25);
+  border-color: rgba(255, 255, 255, 0.5);
+}
+
+.sample-size-select-small:focus {
+  outline: none;
+  border-color: rgba(255, 255, 255, 0.8);
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.2);
+}
+
+.sample-size-select-small option {
+  background: #667eea;
+  color: white;
+}
+
+.re-analyze-button {
+  padding: 8px 16px;
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.15);
+  color: white;
+  font-size: 0.9em;
+  cursor: pointer;
+  transition: all 0.3s;
+}
+
+.re-analyze-button:hover {
+  background: rgba(255, 255, 255, 0.25);
+  border-color: rgba(255, 255, 255, 0.6);
+}
+
 .model-recommendation-card h2 {
   color: white;
   border-bottom-color: rgba(255, 255, 255, 0.3);
@@ -1255,6 +1373,26 @@ button.success {
 
 /* 移动端适配 */
 @media (max-width: 768px) {
+  .recommendation-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+  
+  .header-controls {
+    width: 100%;
+    flex-direction: column;
+    align-items: stretch;
+  }
+  
+  .sample-size-control-inline {
+    justify-content: space-between;
+  }
+  
+  .re-analyze-button {
+    width: 100%;
+  }
+  
   .model-stats {
     grid-template-columns: repeat(2, 1fr);
   }

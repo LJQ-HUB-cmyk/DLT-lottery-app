@@ -573,14 +573,18 @@ textarea:focus {
 }
 
 .sample-size-select {
-  padding: 6px 12px;
+  padding: 8px 12px;
   border: 1px solid #dcdfe6;
   border-radius: 6px;
   font-size: 0.95em;
-  background: white;
+  background: white url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23909399' d='M6 8L1 3h10z'/%3E%3C/svg%3E") no-repeat right 12px center;
   cursor: pointer;
   min-width: 140px;
   transition: all 0.3s;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  padding-right: 35px;
 }
 
 .sample-size-select:hover {
@@ -1082,15 +1086,19 @@ button.success {
 }
 
 .sample-size-select-small {
-  padding: 6px 10px;
+  padding: 8px 10px;
   border: 1px solid rgba(255, 255, 255, 0.3);
   border-radius: 6px;
   font-size: 0.9em;
-  background: rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.15) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='white' d='M6 8L1 3h10z'/%3E%3C/svg%3E") no-repeat right 10px center;
   color: white;
   cursor: pointer;
   min-width: 100px;
   transition: all 0.3s;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  padding-right: 32px;
 }
 
 .sample-size-select-small:hover {
@@ -1505,5 +1513,23 @@ button.success {
   .cache-time,
   .refresh-count {
     font-size: 0.85em;
+  }
+  
+  /* 样本量选择器移动端适配 */
+  .sample-size-control {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+  
+  .sample-size-control label {
+    font-size: 0.9em;
+    white-space: nowrap; /* 防止标签换行 */
+    width: 100%;
+  }
+  
+  .sample-size-select {
+    width: 100%;
+    min-width: auto;
   }
 }

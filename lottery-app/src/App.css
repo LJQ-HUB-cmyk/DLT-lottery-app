@@ -1519,17 +1519,29 @@ button.success {
   .sample-size-control {
     flex-direction: column;
     align-items: stretch;
-    gap: 8px;
+    gap: 10px;
+    padding: 12px;
   }
   
   .sample-size-control label {
-    font-size: 0.9em;
-    white-space: nowrap; /* 防止标签换行 */
+    font-size: 0.95em;
+    white-space: nowrap;
     width: 100%;
+    display: block;
+    margin-bottom: 5px;
   }
   
   .sample-size-select {
     width: 100%;
     min-width: auto;
+    font-size: 1em;
+    padding: 10px 35px 10px 12px;
+  }
+  
+  .control-hint {
+    font-size: 0.85em;
+    color: rgba(255, 255, 255, 0.7);
+    margin-top: 5px;
+    display: block;
   }
 }

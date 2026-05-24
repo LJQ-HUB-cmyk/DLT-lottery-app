@@ -1300,24 +1300,30 @@ class LotteryAnalyzer {
     // 生成缓存键（基于最新开奖号码）
     const cacheKey = `recommendation_${latestDraw.front.join(',')}_${latestDraw.back.join(',')}`;
     const now = Date.now();
-    const CACHE_DURATION = 5 * 60 * 1000; // 缓存5分钟
+    const CACHE_DURATION = 3 * 60 * 1000; // 缓存3分钟（缩短以便更快更新）
 
     // 检查缓存是否有效
     if (this.cache.recommendation && 
-        this.cache.recommendation.key === cacheKey && 
-        (now - this.cache.recommendation.timestamp) < CACHE_DURATION) {
-      console.log('✅ 使用缓存的推荐结果');
-      return this.cache.recommendation.data;
+        this.cache.recommendation.key === cacheKey) {
+      const cacheAge = now - this.cache.recommendation.timestamp;
+      const cacheAgeMinutes = Math.floor(cacheAge / 60000);
+      
+      if (cacheAge < CACHE_DURATION) {
+        console.log(`✅ 使用缓存的推荐结果（已缓存${cacheAgeMinutes}分钟，有效期3分钟）`);
+        return this.cache.recommendation.data;
+      } else {
+        console.log(`⏰ 缓存已过期（${cacheAgeMinutes}分钟 > 3分钟），重新计算...`);
+      }
     }
 
-    console.log('🔄 重新计算推荐结果...');
+    console.log('🔄 开始重新计算推荐结果（大样本分析）...');
 
-    // 生成各模型的预测结果（增加样本量以提高准确性和稳定性）
+    // 生成各模型的预测结果（大幅增加样本量以提高准确性和稳定性）
     const SAMPLE_COUNT = {
-      zhouyi: 10,      // 周易：10组
-      bayesian: 8,     // 贝叶斯：8组
-      rotation: 10,    // 旋转矩阵：10组（5组×2次）
-      hybrid: 8        // 混合模型：8组
+      zhouyi: 50,      // 周易：50组
+      bayesian: 50,    // 贝叶斯：50组
+      rotation: 50,    // 旋转矩阵：50组（10次×5组）
+      hybrid: 50       // 混合模型：50组
     };
 
     const zhouyiPredictions = [];
@@ -1338,11 +1344,12 @@ class LotteryAnalyzer {
       });
     }
 
-    // 旋转矩阵：生成两组5组预测，共10组
-    const rotationPredictions = [
-      ...this.generateRotationMatrixPrediction(5),
-      ...this.generateRotationMatrixPrediction(5)
-    ];
+    // 旋转矩阵：生成10次，每次5组，共50组
+    const rotationPredictions = [];
+    for (let i = 0; i < 10; i++) {
+      const batch = this.generateRotationMatrixPrediction(5);
+      rotationPredictions.push(...batch);
+    }
 
     // 生成混合模型预测（多次采样）
     const hybridPredictions = [];
@@ -1399,11 +1406,12 @@ class LotteryAnalyzer {
       const baseScore = parseFloat(stats.frontHitRate) * frontWeight + 
                        parseFloat(stats.backHitRate) * backWeight;
       
-      // 稳定性因子（命中率越接近平均值越稳定）
-      const stabilityFactor = stats.sampleCount > 5 ? 1.0 : 0.95;
+      // 稳定性因子（多样本时给予更高权重）
+      const stabilityFactor = stats.sampleCount >= 50 ? 1.0 : 
+                             stats.sampleCount >= 20 ? 0.98 : 0.95;
       
-      // 覆盖度因子（样本越多越可靠）
-      const coverageFactor = Math.min(stats.sampleCount / 10, 1.0);
+      // 覆盖度因子（样本越多越可靠，50组为满分）
+      const coverageFactor = Math.min(stats.sampleCount / 50, 1.0);
       
       return baseScore * stabilityFactor * (0.8 + 0.2 * coverageFactor);
     };
@@ -1506,8 +1514,9 @@ class LotteryAnalyzer {
       data: result
     };
 
-    console.log(`✅ 推荐结果已缓存（有效期5分钟）`);
+    console.log(`✅ 推荐结果已缓存（有效期3分钟）`);
     console.log(`📊 最佳模型: ${bestModel.name} (得分: ${bestModel.score.toFixed(2)})`);
+    console.log(`📈 样本量: 周易${SAMPLE_COUNT.zhouyi}组, 贝叶斯${SAMPLE_COUNT.bayesian}组, 旋转矩阵${SAMPLE_COUNT.rotation}组, 混合${SAMPLE_COUNT.hybrid}组`);
 
     return result;
   }

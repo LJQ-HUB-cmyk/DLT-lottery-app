@@ -231,6 +231,7 @@ function App() {
         const data = JSON.parse(cached);
         // 加载数据到状态
         setTodayPrediction(data.prediction);
+        setPredictions(data.prediction); // ✅ 关键：恢复predictions状态，让号码显示出来
         setLastGenerateTime(data.timestamp);
         setRefreshCount(data.refreshCount || 0);
         // 如果检测到缓存，说明今天已经生成过

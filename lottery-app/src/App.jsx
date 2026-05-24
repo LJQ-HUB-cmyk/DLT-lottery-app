@@ -143,6 +143,7 @@ function App() {
   useEffect(() => {
     loadData();
     loadTodayPrediction(); // 加载今日缓存
+    loadSelectedModels(); // 加载用户选择的模型
   }, []);
 
   const loadData = async () => {
@@ -243,6 +244,25 @@ function App() {
     } else {
       console.log('ℹ️ 无今日缓存');
     }
+  };
+
+  // 加载用户选择的模型
+  const loadSelectedModels = () => {
+    const saved = localStorage.getItem('selected_models');
+    if (saved) {
+      try {
+        const models = JSON.parse(saved);
+        setSelectedModels(models);
+        console.log('✅ 恢复用户选择的模型:', models);
+      } catch (e) {
+        console.error('解析模型选择失败:', e);
+      }
+    }
+  };
+
+  // 保存用户选择的模型
+  const saveSelectedModels = (models) => {
+    localStorage.setItem('selected_models', JSON.stringify(models));
   };
 
   // 保存今日缓存
@@ -816,6 +836,7 @@ function App() {
                         newModels = selectedModels.filter(x => x !== m);
                       }
                       setSelectedModels(newModels);
+                      saveSelectedModels(newModels); // ✅ 保存用户选择
                       // 追踪模型选择变化
                       trackModelSelection(newModels);
                     }}

@@ -1420,3 +1420,90 @@ button.success {
     justify-content: flex-start;
   }
 }
+
+/* 缓存信息横幅 */
+.cache-info-banner {
+  margin-top: 15px;
+  padding: 15px;
+  background: linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%);
+  border-radius: 8px;
+  border-left: 4px solid #67c23a;
+  box-shadow: 0 2px 8px rgba(103, 194, 58, 0.15);
+}
+
+.cache-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.status-icon {
+  font-size: 1.2em;
+}
+
+.status-text {
+  font-weight: bold;
+  color: #2e7d32;
+  font-size: 1em;
+}
+
+.cache-details {
+  display: flex;
+  justify-content: space-between;
+  gap: 15px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.cache-time,
+.refresh-count {
+  font-size: 0.9em;
+  color: #558b2f;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.regenerate-button {
+  width: 100%;
+  padding: 10px 15px;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.95em;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.3s;
+  background: linear-gradient(135deg, #67c23a 0%, #5daf34 100%);
+  color: white;
+  box-shadow: 0 2px 4px rgba(103, 194, 58, 0.3);
+}
+
+.regenerate-button:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(103, 194, 58, 0.4);
+}
+
+.regenerate-button:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.regenerate-button:disabled {
+  background: #bdbdbd;
+  cursor: not-allowed;
+  opacity: 0.6;
+  box-shadow: none;
+}
+
+/* 移动端适配 */
+@media (max-width: 768px) {
+  .cache-details {
+    flex-direction: column;
+    gap: 8px;
+  }
+  
+  .cache-time,
+  .refresh-count {
+    font-size: 0.85em;
+  }
+}

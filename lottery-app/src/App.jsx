@@ -115,6 +115,12 @@ function App() {
   const [recommendSampleSize, setRecommendSampleSize] = useState(80); // 推荐算法样本量
   const [copySuccess, setCopySuccess] = useState(false);
   const [currentRecommendation, setCurrentRecommendation] = useState(null); // 当前推荐结果
+  
+  // 每日号码生成缓存相关状态
+  const [todayPrediction, setTodayPrediction] = useState(null); // 今日生成的号码
+  const [lastGenerateTime, setLastGenerateTime] = useState(null); // 上次生成时间
+  const [refreshCount, setRefreshCount] = useState(0); // 今日刷新次数
+  const [isGenerating, setIsGenerating] = useState(false); // 是否正在生成
 
   // 从数据中获取最后一组（最新一期）号码
   const getLatestDrawFromData = () => {
@@ -135,6 +141,7 @@ function App() {
 
   useEffect(() => {
     loadData();
+    loadTodayPrediction(); // 加载今日缓存
   }, []);
 
   const loadData = async () => {
@@ -212,50 +219,120 @@ function App() {
     }, 100);
   };
 
+  // 加载今日缓存
+  const loadTodayPrediction = () => {
+    const today = new Date().toDateString();
+    const cacheKey = `lottery_prediction_${today}`;
+    const cached = localStorage.getItem(cacheKey);
+    
+    if (cached) {
+      try {
+        const data = JSON.parse(cached);
+        setTodayPrediction(data.prediction);
+        setLastGenerateTime(data.timestamp);
+        setRefreshCount(data.refreshCount || 0);
+        console.log('✅ 使用今日缓存:', data.timestamp);
+      } catch (e) {
+        console.error('解析缓存失败:', e);
+      }
+    }
+  };
+
+  // 保存今日缓存
+  const saveTodayPrediction = (prediction, refreshCount = 0) => {
+    const today = new Date().toDateString();
+    const cacheKey = `lottery_prediction_${today}`;
+    const data = {
+      prediction,
+      timestamp: new Date().toLocaleString('zh-CN'),
+      refreshCount
+    };
+    localStorage.setItem(cacheKey, JSON.stringify(data));
+    setTodayPrediction(prediction);
+    setLastGenerateTime(data.timestamp);
+    setRefreshCount(refreshCount);
+  };
+
+  // 检查是否可以刷新
+  const canRegenerate = () => {
+    return refreshCount < 5; // 每天最多刷新5次
+  };
+
+  // 重新生成号码（手动刷新）
+  const handleRegenerate = () => {
+    if (!canRegenerate()) {
+      alert('今日已刷新5次，请明天再来~');
+      return;
+    }
+    
+    if (confirm('确定要重新生成吗？这将覆盖当前号码。')) {
+      const newRefreshCount = refreshCount + 1;
+      handleGenerate(); // 调用生成函数，会自动保存新缓存
+      setRefreshCount(newRefreshCount);
+      
+      // 更新缓存中的刷新次数
+      setTimeout(() => {
+        saveTodayPrediction(predictions, newRefreshCount);
+      }, 400);
+    }
+  };
+
 
 
   const handleGenerate = () => {
-    const groups = groupsPerModel || 5;
-    const results = [];
-    selectedModels.forEach(model => {
-      // 旋转矩阵特殊处理：一次性生成多组
-      if (model === 'rotation') {
-        const rotationResults = analyzer.generateRotationMatrixPrediction(groups);
-        if (Array.isArray(rotationResults)) {
-          rotationResults.forEach((group, idx) => {
+    setIsGenerating(true);
+    
+    setTimeout(() => {
+      const groups = groupsPerModel || 5;
+      const results = [];
+      selectedModels.forEach(model => {
+        // 旋转矩阵特殊处理：一次性生成多组
+        if (model === 'rotation') {
+          const rotationResults = analyzer.generateRotationMatrixPrediction(groups);
+          if (Array.isArray(rotationResults)) {
+            rotationResults.forEach((group, idx) => {
+              results.push({
+                model,
+                groupNum: idx + 1,
+                front: group.front,
+                back: group.back
+              });
+            });
+          }
+        } else {
+          // 其他模型：按组数循环生成
+          for (let i = 0; i < groups; i++) {
+            let comb;
+            if (model === 'omission') comb = analyzer.generateOmissionBasedPrediction();
+            else if (model === 'time_decay') comb = analyzer.generateTimeDecayPrediction();
+            else if (model === 'bayesian') comb = analyzer.generateBayesianPrediction();
+            else if (model === 'zhouyi') comb = analyzer.generateZhouyiPrediction(i); // 周易不缓存，每次都重新生成
+            else if (model === 'hybrid') comb = analyzer.generateHybridPrediction();
+            else comb = analyzer.generateStatisticalPrediction(model);
+            
             results.push({
               model,
-              groupNum: idx + 1,
-              front: group.front,
-              back: group.back
+              groupNum: i + 1,
+              front: comb.slice(0, 5),
+              back: comb.slice(5)
             });
-          });
+          }
         }
-      } else {
-        // 其他模型：按组数循环生成
-        for (let i = 0; i < groups; i++) {
-          let comb;
-          if (model === 'omission') comb = analyzer.generateOmissionBasedPrediction();
-          else if (model === 'time_decay') comb = analyzer.generateTimeDecayPrediction();
-          else if (model === 'bayesian') comb = analyzer.generateBayesianPrediction();
-          else if (model === 'zhouyi') comb = analyzer.generateZhouyiPrediction(i);
-          else if (model === 'hybrid') comb = analyzer.generateHybridPrediction();
-          else comb = analyzer.generateStatisticalPrediction(model);
-          
-          results.push({
-            model,
-            groupNum: i + 1,
-            front: comb.slice(0, 5),
-            back: comb.slice(5)
-          });
-        }
+        
+        // 追踪每个模型的生成
+        trackNumberGeneration(model, groups);
+      });
+      setPredictions(results);
+      setCopySuccess(false);
+      
+      // 保存今日缓存（不包括周易）
+      const shouldCache = !selectedModels.includes('zhouyi');
+      if (shouldCache && results.length > 0) {
+        saveTodayPrediction(results, refreshCount);
       }
       
-      // 追踪每个模型的生成
-      trackNumberGeneration(model, groups);
-    });
-    setPredictions(results);
-    setCopySuccess(false);
+      setIsGenerating(false);
+    }, 300); // 添加轻微延迟，显示加载状态
   };
 
   const formatPredictions = () => {
@@ -717,7 +794,30 @@ function App() {
             <span>组</span>
           </div>
           
-          <button onClick={handleGenerate} style={{backgroundColor: '#67c23a', boxShadow: '0 2px 4px rgba(103, 194, 58, 0.3)'}}>一键生成号码</button>
+          <button onClick={handleGenerate} style={{backgroundColor: '#67c23a', boxShadow: '0 2px 4px rgba(103, 194, 58, 0.3)'}} disabled={isGenerating}>
+            {isGenerating ? '⏳ 生成中...' : '🎯 一键生成号码'}
+          </button>
+          
+          {/* 显示今日缓存信息 */}
+          {todayPrediction && (
+            <div className="cache-info-banner">
+              <div className="cache-status">
+                <span className="status-icon">✅</span>
+                <span className="status-text">使用今日缓存</span>
+              </div>
+              <div className="cache-details">
+                <span className="cache-time">📅 生成时间: {lastGenerateTime}</span>
+                <span className="refresh-count">🔄 今日已刷新: {refreshCount}/5次</span>
+              </div>
+              <button 
+                onClick={handleRegenerate}
+                className="regenerate-button"
+                disabled={!canRegenerate()}
+              >
+                🔄 重新生成 {canRegenerate() ? '' : '(已达上限)'}
+              </button>
+            </div>
+          )}
           
           {predictions.length > 0 && (
             <div className="action-buttons">

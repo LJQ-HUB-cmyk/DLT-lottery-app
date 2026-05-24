@@ -1458,40 +1458,77 @@ class LotteryAnalyzer {
     const bestModel = models[0];
     const secondModel = models[1];
     const thirdModel = models[2];
+    const fourthModel = models[3];
 
-    // 生成推荐理由（优化版）
+    // 找出各维度的最佳模型
+    const bestFrontModel = [...models].sort((a, b) => 
+      parseFloat(b.stats.frontHitRate) - parseFloat(a.stats.frontHitRate)
+    )[0];
+    
+    const bestBackModel = [...models].sort((a, b) => 
+      parseFloat(b.stats.backHitRate) - parseFloat(a.stats.backHitRate)
+    )[0];
+
+    // 生成推荐理由（优化版 v2）
     let reason = '';
     const bestBackRate = parseFloat(bestModel.stats.backHitRate);
     const bestFrontRate = parseFloat(bestModel.stats.frontHitRate);
     const secondBackRate = parseFloat(secondModel.stats.backHitRate);
     
-    // 根据特点生成个性化理由
-    if (bestBackRate > 50) {
-      reason = `该模型在后区预测上表现卓越（命中率${bestModel.stats.backHitRate}%），`;
-    } else if (bestBackRate > 40) {
-      reason = `该模型后区命中率较高（${bestModel.stats.backHitRate}%），`;
-    } else if (bestFrontRate > 20) {
-      reason = `该模型在前区预测上表现出色（命中率${bestModel.stats.frontHitRate}%），`;
-    } else if (bestFrontRate > 15) {
-      reason = `该模型前区表现相对较好（${bestModel.stats.frontHitRate}%），`;
+    // 检查是否是混合模型
+    const isHybridBest = bestModel.key === 'hybrid';
+    
+    if (isHybridBest) {
+      // 混合模型的特殊说明
+      reason = `混合模型融合了三大基础模型的优势，通过投票机制和智能加权，`; 
+      
+      if (bestBackRate > 45) {
+        reason += `在后区预测上表现卓越（${bestModel.stats.backHitRate}%），`;
+      } else if (bestFrontRate > 15) {
+        reason += `在前区预测上相对稳定（${bestModel.stats.frontHitRate}%），`;
+      } else {
+        reason += '整体表现均衡稳定，';
+      }
+      
+      // 提示用户也可以尝试基础模型
+      reason += '\n💡 提示：混合模型虽好，但也可尝试单一模型以获取不同视角。';
     } else {
-      reason = '综合多维度分析，该模型整体表现最优，';
-    }
+      // 基础模型的推荐理由
+      if (bestBackRate > 50) {
+        reason = `该模型在后区预测上表现卓越（命中率${bestModel.stats.backHitRate}%），`;
+      } else if (bestBackRate > 40) {
+        reason = `该模型后区命中率较高（${bestModel.stats.backHitRate}%），`;
+      } else if (bestFrontRate > 20) {
+        reason = `该模型在前区预测上表现出色（命中率${bestModel.stats.frontHitRate}%），`;
+      } else if (bestFrontRate > 15) {
+        reason = `该模型前区表现相对较好（${bestModel.stats.frontHitRate}%），`;
+      } else {
+        reason = '综合多维度分析，该模型整体表现最优，';
+      }
 
-    // 对比其他模型
-    if (bestBackRate > secondBackRate * 1.3) {
-      reason += '且后区命中率大幅领先其他模型。';
-    } else if (bestBackRate > secondBackRate * 1.1) {
-      reason += '后区优势明显。';
-    } else if (Math.abs(bestModel.score - secondModel.score) < 5) {
-      reason += '与第二名差距微小，建议结合使用。';
-    } else {
-      reason += '各项指标相对均衡稳定。';
+      // 对比其他模型
+      if (bestBackRate > secondBackRate * 1.3) {
+        reason += '且后区命中率大幅领先其他模型。';
+      } else if (bestBackRate > secondBackRate * 1.1) {
+        reason += '后区优势明显。';
+      } else if (Math.abs(bestModel.score - secondModel.score) < 5) {
+        reason += '与第二名差距微小，建议结合使用。';
+      } else {
+        reason += '各项指标相对均衡稳定。';
+      }
     }
 
     // 添加模型特色说明
     const charStr = bestModel.characteristics.join('、');
     reason += `\n💡 特色：${charStr}`;
+    
+    // 添加多维度推荐信息
+    if (bestFrontModel.key !== bestModel.key) {
+      reason += `\n🎯 前区最佳: ${bestFrontModel.name} (${bestFrontModel.stats.frontHitRate}%)`;
+    }
+    if (bestBackModel.key !== bestModel.key) {
+      reason += `\n🎯 后区最佳: ${bestBackModel.name} (${bestBackModel.stats.backHitRate}%)`;
+    }
 
     // 生成备选建议
     let alternativeSuggestion = '';
@@ -1518,6 +1555,8 @@ class LotteryAnalyzer {
     console.log(`✅ 推荐结果已缓存（有效期3分钟）`);
     console.log(`📊 最佳模型: ${bestModel.name} (得分: ${bestModel.score.toFixed(2)})`);
     console.log(`📈 样本量: 周易${SAMPLE_COUNT.zhouyi}组, 贝叶斯${SAMPLE_COUNT.bayesian}组, 旋转矩阵${SAMPLE_COUNT.rotation}组, 混合${SAMPLE_COUNT.hybrid}组`);
+    console.log(`📋 各模型得分:`, models.map(m => `${m.name}:${m.score.toFixed(2)}`).join(', '));
+    console.log(`💡 历史数据: ${this.historyData.length}组（建议至少100组以上）`);
 
     return result;
   }

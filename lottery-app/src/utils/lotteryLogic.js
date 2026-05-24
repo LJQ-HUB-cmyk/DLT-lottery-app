@@ -1440,9 +1440,9 @@ class LotteryAnalyzer {
     const rotationStats = calculateHitRate(rotationPredictions, latestDraw);
     const hybridStats = calculateHitRate(hybridPredictions, latestDraw);
 
-    // 综合评分算法（优化版 v5 - 适配206期大数据）
+    // 综合评分算法（优化版 v6 - 平衡单一模型与混合模型）
     // 考虑因素：前区命中率、后区命中率、稳定性、样本覆盖度、一致性
-    const calculateScore = (stats) => {
+    const calculateScore = (stats, modelKey) => {
       // 根据理论期望值调整权重（前区更难命中，给予更高权重）
       const frontWeight = 0.55;  // 前区权重55%（5/35=14.3%，难度更高）
       const backWeight = 0.45;   // 后区权重45%（2/12=16.7%，相对容易）
@@ -1468,7 +1468,30 @@ class LotteryAnalyzer {
                          performanceRatio > 1.1 ? 1.03 :   // 超出期望10%以上，奖励3%
                          1.0;
       
-      return baseScore * stabilityFactor * (0.8 + 0.2 * coverageFactor) * bonusFactor;
+      // 混合模型惩罚因子：避免混合模型总是获胜
+      // 混合模型应该作为备选，而不是总是推荐
+      let hybridPenalty = 1.0;
+      if (modelKey === 'hybrid') {
+        // 只有当混合模型明显优于其他模型时才推荐
+        // 如果优势不明显，给予一定惩罚，让单一模型有机会
+        const avgBaseModelScore = (zhouyiStats.frontHitRate * frontWeight + zhouyiStats.backHitRate * backWeight +
+                                   bayesianStats.frontHitRate * frontWeight + bayesianStats.backHitRate * backWeight +
+                                   rotationStats.frontHitRate * frontWeight + rotationStats.backHitRate * backWeight) / 3;
+        const hybridBaseScore = parseFloat(stats.frontHitRate) * frontWeight + parseFloat(stats.backHitRate) * backWeight;
+        
+        // 如果混合模型只比平均值高一点点，给予惩罚
+        const advantageRatio = hybridBaseScore / avgBaseModelScore;
+        if (advantageRatio < 1.05) {
+          // 优势小于5%，显著降低分数，让单一模型有机会
+          hybridPenalty = 0.85;
+        } else if (advantageRatio < 1.10) {
+          // 优势5-10%，轻微惩罚
+          hybridPenalty = 0.95;
+        }
+        // 优势超过10%，不惩罚
+      }
+      
+      return baseScore * stabilityFactor * (0.8 + 0.2 * coverageFactor) * bonusFactor * hybridPenalty;
     };
 
     const models = [
@@ -1476,7 +1499,7 @@ class LotteryAnalyzer {
         name: '周易时空',
         key: 'zhouyi',
         stats: zhouyiStats,
-        score: calculateScore(zhouyiStats),
+        score: calculateScore(zhouyiStats, 'zhouyi'),
         predictions: zhouyiPredictions,
         characteristics: ['传统智慧', '时间因子', '卦象分析']
       },
@@ -1484,7 +1507,7 @@ class LotteryAnalyzer {
         name: '贝叶斯动态',
         key: 'bayesian',
         stats: bayesianStats,
-        score: calculateScore(bayesianStats),
+        score: calculateScore(bayesianStats, 'bayesian'),
         predictions: bayesianPredictions,
         characteristics: ['概率统计', '动态调整', '遗漏分析']
       },
@@ -1492,7 +1515,7 @@ class LotteryAnalyzer {
         name: '旋转矩阵',
         key: 'rotation',
         stats: rotationStats,
-        score: calculateScore(rotationStats),
+        score: calculateScore(rotationStats, 'rotation'),
         predictions: rotationPredictions,
         characteristics: ['组合数学', '多策略', '高覆盖']
       },
@@ -1500,7 +1523,7 @@ class LotteryAnalyzer {
         name: '混合模型',
         key: 'hybrid',
         stats: hybridStats,
-        score: calculateScore(hybridStats),
+        score: calculateScore(hybridStats, 'hybrid'),
         predictions: hybridPredictions,
         characteristics: ['多模融合', '投票机制', '智能加权']
       }
@@ -1523,7 +1546,7 @@ class LotteryAnalyzer {
       parseFloat(b.stats.backHitRate) - parseFloat(a.stats.backHitRate)
     )[0];
 
-    // 生成推荐理由（优化版 v3 - 基于206期大数据）
+    // 生成推荐理由（优化版 v4 - 更透明的推荐逻辑）
     let reason = '';
     const bestBackRate = parseFloat(bestModel.stats.backHitRate);
     const bestFrontRate = parseFloat(bestModel.stats.frontHitRate);
@@ -1547,6 +1570,10 @@ class LotteryAnalyzer {
         reason += '整体表现均衡稳定，多模型融合降低单一模型偏差；';
       }
       
+      // 说明为什么推荐混合模型
+      const scoreDiff = ((bestModel.score - secondModel.score) / secondModel.score * 100).toFixed(1);
+      reason += `\n📊 优势：比第二名高出${scoreDiff}%，表现显著领先。`;
+      
       // 提示用户也可以尝试基础模型
       reason += '\n💡 提示：混合模型虽好，但也可尝试单一模型以获取不同视角。';
     } else {
@@ -1562,21 +1589,28 @@ class LotteryAnalyzer {
       } else if (bestFrontRate > 16) {
         reason = `该模型前区表现较好（${bestModel.stats.frontHitRate}%），优于随机选择；`;
       } else {
-        reason = '综合多维度分析，该模型在206期历史数据中整体表现最优；';
+        reason = `综合多维度分析，${bestModel.name}在${dataVolume}期历史数据中整体表现最优；`;
       }
 
       // 对比其他模型（更细致的比较）
       const scoreDiff = Math.abs(bestModel.score - secondModel.score);
+      const scoreDiffPercent = ((bestModel.score - secondModel.score) / secondModel.score * 100).toFixed(1);
+      
       if (bestBackRate > secondBackRate * 1.4) {
         reason += '且后区命中率大幅领先其他模型（优势超过40%）。';
       } else if (bestBackRate > secondBackRate * 1.2) {
         reason += '后区优势明显（领先第二名20%以上）。';
       } else if (scoreDiff < 3) {
-        reason += '与第二名差距微小（<3分），建议结合使用或交替尝试。';
+        reason += `与第二名差距微小（仅${scoreDiffPercent}%），建议结合使用或交替尝试。`;
       } else if (scoreDiff < 8) {
-        reason += '各项指标相对均衡，小幅领先其他模型。';
+        reason += `各项指标相对均衡，小幅领先其他模型（${scoreDiffPercent}%）。`;
       } else {
-        reason += '综合得分显著领先，各项指标表现稳定。';
+        reason += `综合得分显著领先（${scoreDiffPercent}%），各项指标表现稳定。`;
+      }
+      
+      // 如果是混合模型排第二，特别说明
+      if (secondModel.key === 'hybrid') {
+        reason += '\n💡 注意：混合模型排名第二，说明当前数据特征更适合单一模型。';
       }
     }
 

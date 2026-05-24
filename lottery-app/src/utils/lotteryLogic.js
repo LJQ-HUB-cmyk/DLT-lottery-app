@@ -13,12 +13,14 @@ const CONFIG = {
   COLD_NUMBERS_COUNT: 10,   // 冷号数量
   ROTATION_HIGH_FREQ: 15,   // 旋转矩阵高频号数量
   ROTATION_LOW_FREQ: 6,     // 旋转矩阵后区高频号数量
-  BAYESIAN_CANDIDATE_FRONT: 12,  // 贝叶斯前区候选数量（增加到12以提高覆盖率）
-  BAYESIAN_CANDIDATE_BACK: 6,    // 贝叶斯后区候选数量（增加到6以提高覆盖率）
-  DISTRIBUTION_TRY_COUNT: 300,   // 分布策略尝试次数（增加到300以找到更优解）
+  BAYESIAN_CANDIDATE_FRONT: 15,  // 贝叶斯前区候选数量（增加到15以提高覆盖率）
+  BAYESIAN_CANDIDATE_BACK: 8,    // 贝叶斯后区候选数量（增加到8以提高覆盖率）
+  DISTRIBUTION_TRY_COUNT: 500,   // 分布策略尝试次数（增加到500以找到更优解）
   TIME_DECAY_FACTOR: 0.95,  // 时间衰减因子
   HYBRID_MODEL_COUNT: 3,    // 混合模型使用的模型数量
-  QUALITY_SCORE_THRESHOLD: 75,  // 质量评分阈值（提高要求）
+  QUALITY_SCORE_THRESHOLD: 80,  // 质量评分阈值（提高要求）
+  RECENT_DRAWS_FOR_TREND: 10,  // 用于趋势分析的最近期数
+  ADAPTIVE_WEIGHT_WINDOW: 15,  // 自适应权重窗口大小
 };
 
 class LotteryAnalyzer {
@@ -35,6 +37,10 @@ class LotteryAnalyzer {
       hotCold: null,
       omission: null,
       timeDecayWeights: null,
+      sumTrend: null,        // 和值趋势缓存
+      spanAnalysis: null,    // 跨度分析缓存
+      repeatNumbers: null,   // 重号分析缓存
+      modelPerformance: null, // 模型表现缓存
       dataVersion: 0
     };
   }
@@ -50,6 +56,10 @@ class LotteryAnalyzer {
       hotCold: null,
       omission: null,
       timeDecayWeights: null,
+      sumTrend: null,
+      spanAnalysis: null,
+      repeatNumbers: null,
+      modelPerformance: null,
       dataVersion: this.cache.dataVersion + 1
     };
   }
@@ -591,14 +601,16 @@ class LotteryAnalyzer {
   }
 
   /**
-   * 贝叶斯动态预测模型（优化版 v2）
+   * 贝叶斯动态预测模型（优化版 v3）
    * 基于历史数据计算条件概率，动态调整预测权重
    * 性能优化：使用向量化计算，避免三层嵌套循环
-   * 优化：增加遗漏值因子和区间平衡因子
+   * 优化：增加遗漏值因子、区间平衡因子、趋势分析、重号策略
    */
   generateBayesianPrediction() {
     const [frontCounter, backCounter] = this.analyzeFrequency();
     const omission = this.calculateOmission();
+    const sumTrend = this.analyzeSumTrend();
+    const repeatAnalysis = this.analyzeRepeatNumbers();
     const totalDraws = this.historyData.length;
     
     if (totalDraws === 0) {
@@ -620,7 +632,7 @@ class LotteryAnalyzer {
       priorBack[i] = (backCounter[i] || 0) / totalDraws;
     }
     
-    // 优化：使用后验概率选择号码（结合先验、时间加权和遗漏值）
+    // 优化：使用后验概率选择号码（结合先验、时间加权、遗漏值、趋势）
     const posteriorFront = {};
     const posteriorBack = {};
     
@@ -630,9 +642,12 @@ class LotteryAnalyzer {
     const frontAvgOmission = frontOmissionValues.reduce((a, b) => a + b, 0) / frontOmissionValues.length;
     const backAvgOmission = backOmissionValues.reduce((a, b) => a + b, 0) / backOmissionValues.length;
     
+    // 获取上期开奖号码（用于重号分析）
+    const lastDraw = this.historyData.length > 0 ? this.historyData[this.historyData.length - 1] : null;
+    
     // 前区后验概率计算
     for (let i = 1; i <= CONFIG.FRONT_RANGE; i++) {
-      let score = priorFront[i] * 0.4; // 降低先验权重
+      let score = priorFront[i] * 0.35; // 进一步降低先验权重
       
       // 时间加权：近期数据权重更高
       let timeScore = 0;
@@ -640,7 +655,7 @@ class LotteryAnalyzer {
         const draw = this.historyData[idx];
         if (draw.front.includes(i)) {
           const timeWeight = Math.exp((idx - this.historyData.length + 1) / this.historyData.length);
-          timeScore += timeWeight * 0.15;
+          timeScore += timeWeight * 0.2;
         }
       }
       score += timeScore;
@@ -649,26 +664,38 @@ class LotteryAnalyzer {
       const currentOmission = omission.front[i] || 0;
       const omissionDiff = Math.abs(currentOmission - frontAvgOmission);
       const omissionFactor = Math.max(0, 1 - omissionDiff / (frontAvgOmission * 2));
-      score += omissionFactor * 0.3;
+      score += omissionFactor * 0.25;
       
       // 区间平衡因子：确保号码分布均匀
       const zoneIndex = Math.floor((i - 1) / 5); // 7个区间
       const zoneBonus = (zoneIndex % 2 === 0) ? 0.05 : 0; // 交替加分
       score += zoneBonus;
       
+      // 重号因子：上期出现的号码给予额外权重
+      if (lastDraw && lastDraw.front.includes(i)) {
+        score += repeatAnalysis.frontRepeatRate * 0.15; // 根据重号率调整
+      }
+      
+      // 和值趋势因子：如果和值呈上升趋势，偏向大号
+      if (sumTrend.trendFront > 5 && i > 18) {
+        score += 0.05; // 上升趋势，大号加分
+      } else if (sumTrend.trendFront < -5 && i <= 18) {
+        score += 0.05; // 下降趋势，小号加分
+      }
+      
       posteriorFront[i] = score;
     }
     
     // 后区后验概率计算
     for (let i = 1; i <= CONFIG.BACK_RANGE; i++) {
-      let score = priorBack[i] * 0.4;
+      let score = priorBack[i] * 0.35;
       
       let timeScore = 0;
       for (let idx = 0; idx < this.historyData.length; idx++) {
         const draw = this.historyData[idx];
         if (draw.back.includes(i)) {
           const timeWeight = Math.exp((idx - this.historyData.length + 1) / this.historyData.length);
-          timeScore += timeWeight * 0.15;
+          timeScore += timeWeight * 0.2;
         }
       }
       score += timeScore;
@@ -677,11 +704,16 @@ class LotteryAnalyzer {
       const currentOmission = omission.back[i] || 0;
       const omissionDiff = Math.abs(currentOmission - backAvgOmission);
       const omissionFactor = Math.max(0, 1 - omissionDiff / (backAvgOmission * 2));
-      score += omissionFactor * 0.3;
+      score += omissionFactor * 0.25;
       
       // 奇偶平衡因子
       const oddEvenBonus = (i % 2 === 1) ? 0.05 : 0; // 奇数稍加分
       score += oddEvenBonus;
+      
+      // 重号因子（后区重号率通常较高）
+      if (lastDraw && lastDraw.back.includes(i)) {
+        score += repeatAnalysis.backRepeatRate * 0.2; // 后区重号加成更高
+      }
       
       posteriorBack[i] = score;
     }
@@ -793,37 +825,50 @@ class LotteryAnalyzer {
   }
 
   /**
-   * 混合预测模型（新增）
+   * 混合预测模型（优化版 v3）
    * 结合周易、贝叶斯和旋转矩阵的优势
    * 科学性：基于多模型投票机制，提高稳定性
+   * 优化：加入趋势分析、重号策略、智能权重调整
    */
   generateHybridPrediction() {
+    // 获取新增的分析数据
+    const sumTrend = this.analyzeSumTrend();
+    const spanAnalysis = this.analyzeSpan();
+    const repeatAnalysis = this.analyzeRepeatNumbers();
+    const modelWeights = this.evaluateModelPerformance();
+    
     // 生成三个模型的预测结果
     const zhouyi = this.generateZhouyiPrediction();
     const bayesian = this.generateBayesianPrediction();
     const rotationResults = this.generateRotationMatrixPrediction(1);
     const rotation = rotationResults[0];
     
-    // 前区：收集所有模型的候选号码
+    // 前区：收集所有模型的候选号码，并根据模型权重加权投票
     const zhouyiFront = zhouyi.slice(0, 5);
     const bayesianFront = bayesian.slice(0, 5);
     const rotationFront = rotation.front;
     
-    // 统计每个号码的出现次数（投票）
+    // 加权投票机制
     const voteCount = {};
-    [...zhouyiFront, ...bayesianFront, ...rotationFront].forEach(num => {
-      voteCount[num] = (voteCount[num] || 0) + 1;
+    zhouyiFront.forEach(num => {
+      voteCount[num] = (voteCount[num] || 0) + modelWeights.zhouyi;
+    });
+    bayesianFront.forEach(num => {
+      voteCount[num] = (voteCount[num] || 0) + modelWeights.bayesian;
+    });
+    rotationFront.forEach(num => {
+      voteCount[num] = (voteCount[num] || 0) + modelWeights.rotation;
     });
     
     // 按票数排序，票数相同则随机打乱
     const candidates = Object.entries(voteCount)
       .sort((a, b) => {
-        if (b[1] !== a[1]) return b[1] - a[1];
+        if (Math.abs(b[1] - a[1]) > 0.01) return b[1] - a[1];
         return Math.random() - 0.5;
       })
       .map(x => Number(x[0]));
     
-    // 如果候选号码不足5个，补充高质量号码
+    // 如果候选号码不足，补充高质量号码
     if (candidates.length < CONFIG.FRONT_COUNT) {
       const [frontCounter] = this.analyzeFrequency();
       const remaining = this.frontNumbers
@@ -832,12 +877,23 @@ class LotteryAnalyzer {
       candidates.push(...remaining.slice(0, CONFIG.FRONT_COUNT - candidates.length));
     }
     
-    // 从候选中选择前区号码，并进行质量评估
+    // 从候选中选择前区号码，并进行质量评估（增加尝试次数）
     let bestFront = null;
     let bestScore = -Infinity;
     
-    for (let i = 0; i < 50; i++) {
+    for (let i = 0; i < 100; i++) { // 增加到100次尝试
       const selected = this.randomSample(candidates, CONFIG.FRONT_COUNT);
+      
+      // 检查是否符合跨度要求
+      const span = Math.max(...selected) - Math.min(...selected);
+      const spanDiff = Math.abs(span - spanAnalysis.avgFrontSpan);
+      if (spanDiff > 8) continue; // 跨度过大，跳过
+      
+      // 检查和值要求
+      const sum = selected.reduce((a, b) => a + b, 0);
+      const sumDiff = Math.abs(sum - sumTrend.avgFrontSum);
+      if (sumDiff > 25) continue; // 和值偏离过大，跳过
+      
       const score = this.evaluateCombination(selected, [1, 2]); // 临时后区
       
       if (score > bestScore) {
@@ -853,15 +909,32 @@ class LotteryAnalyzer {
     
     const front = bestFront || this.randomSample(candidates, CONFIG.FRONT_COUNT);
     
-    // 后区：使用投票机制
+    // 后区：使用投票机制 + 重号策略
     const zhouyiBack = zhouyi.slice(5);
     const bayesianBack = bayesian.slice(5);
     const rotationBack = rotation.back;
     
     const backVoteCount = {};
-    [...zhouyiBack, ...bayesianBack, ...rotationBack].forEach(num => {
-      backVoteCount[num] = (backVoteCount[num] || 0) + 1;
+    zhouyiBack.forEach(num => {
+      backVoteCount[num] = (backVoteCount[num] || 0) + modelWeights.zhouyi;
     });
+    bayesianBack.forEach(num => {
+      backVoteCount[num] = (backVoteCount[num] || 0) + modelWeights.bayesian;
+    });
+    rotationBack.forEach(num => {
+      backVoteCount[num] = (backVoteCount[num] || 0) + modelWeights.rotation;
+    });
+    
+    // 如果有上期开奖数据，考虑重号策略
+    if (this.historyData.length > 0) {
+      const lastDraw = this.historyData[this.historyData.length - 1];
+      lastDraw.back.forEach(num => {
+        // 重号给予额外权重
+        if (backVoteCount[num]) {
+          backVoteCount[num] += 0.3; // 重号加成
+        }
+      });
+    }
     
     const backCandidates = Object.entries(backVoteCount)
       .sort((a, b) => b[1] - a[1])
@@ -1073,6 +1146,144 @@ class LotteryAnalyzer {
     
     const result = { front: frontWeights, back: backWeights };
     this.cache.timeDecayWeights = { key: cacheKey, result };
+    return result;
+  }
+
+  /**
+   * 分析和值趋势（新增）
+   * 计算最近N期的和值变化趋势
+   */
+  analyzeSumTrend() {
+    if (this.cache.sumTrend) {
+      return this.cache.sumTrend;
+    }
+    
+    const recentCount = Math.min(CONFIG.RECENT_DRAWS_FOR_TREND, this.historyData.length);
+    const recentDraws = this.historyData.slice(-recentCount);
+    
+    const frontSums = recentDraws.map(d => d.front.reduce((a, b) => a + b, 0));
+    const backSums = recentDraws.map(d => d.back.reduce((a, b) => a + b, 0));
+    
+    // 计算平均值和标准差
+    const avgFrontSum = frontSums.reduce((a, b) => a + b, 0) / frontSums.length;
+    const avgBackSum = backSums.reduce((a, b) => a + b, 0) / backSums.length;
+    
+    const frontStd = Math.sqrt(
+      frontSums.reduce((sum, val) => sum + Math.pow(val - avgFrontSum, 2), 0) / frontSums.length
+    );
+    const backStd = Math.sqrt(
+      backSums.reduce((sum, val) => sum + Math.pow(val - avgBackSum, 2), 0) / backSums.length
+    );
+    
+    // 判断趋势（上升、下降、平稳）
+    const firstHalfFront = frontSums.slice(0, Math.floor(frontSums.length / 2));
+    const secondHalfFront = frontSums.slice(Math.floor(frontSums.length / 2));
+    const trendFront = secondHalfFront.reduce((a, b) => a + b, 0) / secondHalfFront.length - 
+                       firstHalfFront.reduce((a, b) => a + b, 0) / firstHalfFront.length;
+    
+    const result = {
+      avgFrontSum,
+      avgBackSum,
+      frontStd,
+      backStd,
+      trendFront, // 正值表示上升趋势，负值表示下降趋势
+      recentFrontSums: frontSums,
+      recentBackSums: backSums
+    };
+    
+    this.cache.sumTrend = result;
+    return result;
+  }
+
+  /**
+   * 跨度分析（新增）
+   * 分析最大号与最小号的差值
+   */
+  analyzeSpan() {
+    if (this.cache.spanAnalysis) {
+      return this.cache.spanAnalysis;
+    }
+    
+    const recentCount = Math.min(CONFIG.RECENT_DRAWS_FOR_TREND, this.historyData.length);
+    const recentDraws = this.historyData.slice(-recentCount);
+    
+    const frontSpans = recentDraws.map(d => Math.max(...d.front) - Math.min(...d.front));
+    const backSpans = recentDraws.map(d => Math.max(...d.back) - Math.min(...d.back));
+    
+    const avgFrontSpan = frontSpans.reduce((a, b) => a + b, 0) / frontSpans.length;
+    const avgBackSpan = backSpans.reduce((a, b) => a + b, 0) / backSpans.length;
+    
+    const result = {
+      avgFrontSpan,
+      avgBackSpan,
+      recentFrontSpans: frontSpans,
+      recentBackSpans: backSpans
+    };
+    
+    this.cache.spanAnalysis = result;
+    return result;
+  }
+
+  /**
+   * 重号分析（新增）
+   * 分析上期号码在本期重复的概率
+   */
+  analyzeRepeatNumbers() {
+    if (this.cache.repeatNumbers) {
+      return this.cache.repeatNumbers;
+    }
+    
+    if (this.historyData.length < 2) {
+      return { frontRepeatRate: 0, backRepeatRate: 0, commonRepeatCount: 0 };
+    }
+    
+    let frontRepeatCount = 0;
+    let backRepeatCount = 0;
+    let comparisonCount = 0;
+    
+    for (let i = 1; i < this.historyData.length; i++) {
+      const prevDraw = this.historyData[i - 1];
+      const currDraw = this.historyData[i];
+      
+      // 前区重号
+      const frontRepeats = prevDraw.front.filter(n => currDraw.front.includes(n)).length;
+      frontRepeatCount += frontRepeats;
+      
+      // 后区重号
+      const backRepeats = prevDraw.back.filter(n => currDraw.back.includes(n)).length;
+      backRepeatCount += backRepeats;
+      
+      comparisonCount++;
+    }
+    
+    const result = {
+      frontRepeatRate: frontRepeatCount / comparisonCount,
+      backRepeatRate: backRepeatCount / comparisonCount,
+      commonRepeatCount: Math.round(frontRepeatCount / comparisonCount)
+    };
+    
+    this.cache.repeatNumbers = result;
+    return result;
+  }
+
+  /**
+   * 评估模型表现（新增）
+   * 基于最近N期的预测准确度评估各模型表现
+   */
+  evaluateModelPerformance() {
+    if (this.cache.modelPerformance) {
+      return this.cache.modelPerformance;
+    }
+    
+    // 这里简化实现，实际应该记录历史预测结果并与实际开奖对比
+    // 当前返回默认权重
+    const result = {
+      zhouyi: 0.35,
+      bayesian: 0.35,
+      rotation: 0.30
+    };
+    
+    this.cache.modelPerformance = result;
     return result;
   }
 }

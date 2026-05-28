@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import LotteryAnalyzer from './utils/lotteryLogic';
 import { trackNumberGeneration, trackCopy, trackSave, trackDataUpdate, trackModelSelection } from './utils/baiduAnalytics';
 import AuthGuard from './components/AuthGuard';
+import DataVisualization from './components/DataVisualization';
 import './App.css';
 
 // 动态导入外部数据文件（如果存在）
@@ -121,7 +122,19 @@ function App() {
   const [lastGenerateTime, setLastGenerateTime] = useState(null); // 上次生成时间
   const [refreshCount, setRefreshCount] = useState(0); // 今日刷新次数
   const [isGenerating, setIsGenerating] = useState(false); // 是否正在生成
+  const [showVisualization, setShowVisualization] = useState(false); // 是否显示可视化
+  // 胆拖玩法状态
+  const [danNumbers, setDanNumbers] = useState([]); // 胆码
+  const [tuoNumbers, setTuoNumbers] = useState([]); // 拖码
+  const [backDanNumbers, setBackDanNumbers] = useState([]); // 后区胆码
+  const [backTuoNumbers, setBackTuoNumbers] = useState([]); // 后区拖码
+  const [dantuoResult, setDantuoResult] = useState(null); // 胆拖结果
+  const [useDoubleZone, setUseDoubleZone] = useState(false); // 是否使用双区胆拖
+  const [useBackFullDrag, setUseBackFullDrag] = useState(false); // 是否使用后区一胆全拖
+  const [dantuoRecommendation, setDantuoRecommendation] = useState(null); // 胆拖推荐
+  const [recommendStrategy, setRecommendStrategy] = useState('hot'); // 推荐策略: hot-热号, balanced-均衡, conservative-保守
   const [hasGeneratedToday, setHasGeneratedToday] = useState(false); // 今日是否已生成（用户主动操作）
+  const [useBackZoneDanTuo, setUseBackZoneDanTuo] = useState(false); // 前区胆拖模式下是否使用后区胆拖
 
   // 从数据中获取最后一组（最新一期）号码
   const getLatestDrawFromData = () => {
@@ -411,6 +424,340 @@ function App() {
     }, 300); // 添加轻微延迟，显示加载状态
   };
 
+  // 胆拖玩法 - 生成组合
+  const handleGenerateDanTuo = () => {
+    if (danNumbers.length === 0 || tuoNumbers.length === 0) {
+      alert('请选择至少1个胆码和1个拖码！');
+      return;
+    }
+
+    try {
+      let result;
+      // 如果有后区胆拖号码（无论是否开启开关），都使用双区胆拖生成
+      if (backDanNumbers.length > 0 && backTuoNumbers.length > 0) {
+        result = analyzer.generateDoubleDanTuo({
+          frontDan: danNumbers,
+          frontTuo: tuoNumbers,
+          backDan: backDanNumbers,
+          backTuo: backTuoNumbers
+        });
+      } else {
+        // 单区胆拖（仅前区）
+        result = analyzer.generateDanTuo(danNumbers, tuoNumbers, 5);
+      }
+      
+      setDantuoResult(result);
+    } catch (error) {
+      alert(`错误: ${error.message}`);
+    }
+  };
+
+  // 胆拖玩法 - 切换号码选择
+  const toggleDanNumber = (num) => {
+    if (danNumbers.includes(num)) {
+      setDanNumbers(danNumbers.filter(n => n !== num));
+    } else {
+      if (danNumbers.length >= 4) {
+        alert('胆码最多选择4个！');
+        return;
+      }
+      // 检查是否已在拖码中
+      if (tuoNumbers.includes(num)) {
+        alert('该号码已在拖码中，请先从拖码中移除！');
+        return;
+      }
+      setDanNumbers([...danNumbers, num].sort((a, b) => a - b));
+    }
+  };
+
+  const toggleTuoNumber = (num) => {
+    if (tuoNumbers.includes(num)) {
+      setTuoNumbers(tuoNumbers.filter(n => n !== num));
+    } else {
+      // 拖码数量检查：最多可以选择剩余的31个号码（35-4个胆码）
+      const maxTuoCount = 35 - danNumbers.length;
+      if (tuoNumbers.length >= maxTuoCount) {
+        alert(`拖码最多选择${maxTuoCount}个（剩余所有号码）！`);
+        return;
+      }
+      // 检查是否已在胆码中
+      if (danNumbers.includes(num)) {
+        alert('该号码已在胆码中，请先从胆码中移除！');
+        return;
+      }
+      setTuoNumbers([...tuoNumbers, num].sort((a, b) => a - b));
+    }
+  };
+
+  const toggleBackDanNumber = (num) => {
+    if (backDanNumbers.includes(num)) {
+      setBackDanNumbers(backDanNumbers.filter(n => n !== num));
+    } else {
+      if (backDanNumbers.length >= 1) {
+        alert('后区胆码最多选择1个！');
+        return;
+      }
+      if (backTuoNumbers.includes(num)) {
+        alert('该号码已在后区拖码中，请先从拖码中移除！');
+        return;
+      }
+      setBackDanNumbers([...backDanNumbers, num].sort((a, b) => a - b));
+    }
+  };
+
+  const toggleBackTuoNumber = (num) => {
+    if (backTuoNumbers.includes(num)) {
+      setBackTuoNumbers(backTuoNumbers.filter(n => n !== num));
+    } else {
+      // 后区拖码数量检查：最多可以选择剩余的11个号码（12-1个胆码）
+      const maxBackTuoCount = 12 - backDanNumbers.length;
+      if (backTuoNumbers.length >= maxBackTuoCount) {
+        alert(`后区拖码最多选择${maxBackTuoCount}个（剩余所有号码）！`);
+        return;
+      }
+      if (backDanNumbers.includes(num)) {
+        alert('该号码已在后区胆码中，请先从胆码中移除！');
+        return;
+      }
+      setBackTuoNumbers([...backTuoNumbers, num].sort((a, b) => a - b));
+    }
+  };
+
+  // 计算胆拖预计注数
+  const calculateDanTuoBets = () => {
+    if (danNumbers.length === 0 || tuoNumbers.length === 0) return 0;
+    
+    const needFromTuo = 5 - danNumbers.length;
+    if (needFromTuo <= 0 || needFromTuo > tuoNumbers.length) return 0;
+    
+    // 计算组合数 C(n, k)
+    const combinations = (n, k) => {
+      if (k > n || k < 0) return 0;
+      if (k === 0 || k === n) return 1;
+      let result = 1;
+      for (let i = 0; i < k; i++) {
+        result = result * (n - i) / (i + 1);
+      }
+      return Math.round(result);
+    };
+    
+    let frontBets = combinations(tuoNumbers.length, needFromTuo);
+    
+    // 如果有后区胆拖号码（无论是否开启开关），都计算后区注数
+    if (backDanNumbers.length > 0 && backTuoNumbers.length > 0) {
+      const backNeed = 2 - backDanNumbers.length;
+      if (backNeed > 0 && backNeed <= backTuoNumbers.length) {
+        const backBets = combinations(backTuoNumbers.length, backNeed);
+        return frontBets * backBets;
+      }
+    }
+    
+    return frontBets;
+  };
+
+  // 胆拖玩法 - 智能推荐
+  const handleRecommendDanTuo = (strategy = 'hot') => {
+    setRecommendStrategy(strategy);
+    
+    // 获取热号和冷号
+    const hotCold = analyzer.getHotColdNumbers(15);
+    const hotNumbers = hotCold.frontHot.map(item => Number(item[0]));
+    const coldNumbers = hotCold.frontCold.map(item => Number(item[0]));
+    const backHotNumbers = hotCold.backHot.map(item => Number(item[0]));
+    const backColdNumbers = hotCold.backCold.map(item => Number(item[0]));
+    
+    let recommendedDan, recommendedTuo, strategyName, description;
+    
+    // 根据不同策略选择胆码和拖码
+    if (strategy === 'hot') {
+      // 热号策略：2个热号 + 1个温号作为胆码
+      recommendedDan = [hotNumbers[0], hotNumbers[1], 18];
+      const allCandidates = [
+        ...hotNumbers.slice(2, 6),
+        ...coldNumbers.slice(0, 2),
+        10, 22, 29, 35
+      ];
+      recommendedTuo = allCandidates.filter(n => !recommendedDan.includes(n));
+      strategyName = '热号策略';
+      description = '选择近期最热的2个号码+1个中间号作为胆码，提高中奖概率';
+    } else if (strategy === 'balanced') {
+      // 均衡策略：1个热号 + 1个冷号 + 1个温号
+      recommendedDan = [hotNumbers[0], coldNumbers[0], 18];
+      const allCandidates = [
+        ...hotNumbers.slice(1, 4),
+        ...coldNumbers.slice(1, 4),
+        10, 22, 29, 35
+      ];
+      recommendedTuo = allCandidates.filter(n => !recommendedDan.includes(n));
+      strategyName = '均衡策略';
+      description = '热号、冷号、温号均衡搭配，兼顾趋势与回补';
+    } else if (strategy === 'conservative') {
+      // 保守策略：1个热号 + 2个温号（胆码少，拖码多）
+      recommendedDan = [hotNumbers[0], 15, 25];
+      // 保守策略：尽可能多选拖码，覆盖更广
+      const allCandidates = [
+        ...hotNumbers.slice(1, 8),  // 增加热号数量
+        ...coldNumbers.slice(0, 6),  // 增加冷号数量
+        8, 12, 20, 28, 33, 35,
+        5, 9, 14, 19, 24, 30  // 补充更多号码
+      ];
+      recommendedTuo = allCandidates.filter(n => !recommendedDan.includes(n));
+      strategyName = '保守策略';
+      description = '胆码保守选择，拖码范围更广，注数更多但覆盖面广';
+    }
+    
+    setDanNumbers(recommendedDan);
+    setTuoNumbers(recommendedTuo);
+    
+    // 处理双区模式和后区胆拖
+    // 无论是否开启开关，都推荐后区号码供用户参考
+    let backRecommendationInfo = '';
+    
+    if (useDoubleZone || useBackZoneDanTuo) {
+      if (useDoubleZone && useBackFullDrag) {
+        // 一胆全拖模式：只选择1个胆码，拖码自动为剩余所有号码
+        const recommendedBackDan = [backHotNumbers[0]];
+        const recommendedBackTuo = Array.from({ length: 12 }, (_, i) => i + 1)
+          .filter(n => !recommendedBackDan.includes(n));
+        
+        setBackDanNumbers(recommendedBackDan);
+        setBackTuoNumbers(recommendedBackTuo);
+        
+        description += `；后区一胆全拖：胆码${recommendedBackDan[0]}，拖码1-12除胆码外全部选择`;
+        backRecommendationInfo = `推荐后区号码：${recommendedBackDan[0].toString().padStart(2, '0')} + 其余11个号码全拖。理由：胆码${recommendedBackDan[0]}是近期最热的后区号码，出现频率最高，配合全拖模式可确保后区100%覆盖。`;
+      } else {
+        // 普通双区模式 或 前区胆拖+后区胆拖
+        const recommendedBackDan = [backHotNumbers[0]];
+        const recommendedBackTuo = [
+          backHotNumbers[1],
+          backColdNumbers[0],
+          6,
+          9
+        ].filter(n => !recommendedBackDan.includes(n));
+        
+        setBackDanNumbers(recommendedBackDan);
+        setBackTuoNumbers(recommendedBackTuo);
+        
+        description += `；后区：1个热号作为胆码，结合热号、冷号和温号作为拖码`;
+        backRecommendationInfo = `推荐后区号码：${recommendedBackDan[0].toString().padStart(2, '0')} + ${recommendedBackTuo.map(n => n.toString().padStart(2, '0')).join(' ')}。理由：胆码${recommendedBackDan[0]}是近期最热的后区号码（出现频率最高），拖码包含次热号${recommendedBackTuo[0].toString().padStart(2, '0')}和最冷号${backColdNumbers[0].toString().padStart(2, '0')}（回补预期），搭配温号平衡分布。`;
+      }
+    } else {
+      // 前区胆拖模式，不开启后区胆拖，也显示推荐的后区号码供参考
+      const recommendedBackDan = [backHotNumbers[0]];
+      const recommendedBackTuo = [
+        backHotNumbers[1],
+        backColdNumbers[0],
+        6,
+        9
+      ].filter(n => !recommendedBackDan.includes(n));
+      
+      // 也要设置后区号码，让生成结果使用推荐的后区
+      setBackDanNumbers(recommendedBackDan);
+      setBackTuoNumbers(recommendedBackTuo);
+      
+      backRecommendationInfo = `推荐后区号码：${recommendedBackDan[0].toString().padStart(2, '0')} + ${recommendedBackTuo.map(n => n.toString().padStart(2, '0')).join(' ')}。理由：胆码${recommendedBackDan[0]}是近期最热的后区号码（出现频率最高），拖码包含次热号${recommendedBackTuo[0].toString().padStart(2, '0')}和最冷号${backColdNumbers[0].toString().padStart(2, '0')}（回补预期），搭配温号平衡分布。如果您想使用后区胆拖，可以开启“自选后区（胆拖）”开关。`;
+    }
+    
+    // 生成推荐结果
+    try {
+      let result;
+      // 如果有后区胆拖号码（无论是否开启开关），都使用双区胆拖生成
+      if (backDanNumbers.length > 0 && backTuoNumbers.length > 0) {
+        if (useDoubleZone && useBackFullDrag) {
+          // 一胆全拖：胆码1个，拖码11个
+          result = analyzer.generateDoubleDanTuo({
+            frontDan: recommendedDan,
+            frontTuo: recommendedTuo,
+            backDan: backDanNumbers,
+            backTuo: backTuoNumbers
+          });
+        } else {
+          result = analyzer.generateDoubleDanTuo({
+            frontDan: recommendedDan,
+            frontTuo: recommendedTuo,
+            backDan: backDanNumbers,
+            backTuo: backTuoNumbers
+          });
+        }
+      } else {
+        // 没有后区胆拖号码，只生成前区胆拖
+        result = analyzer.generateDanTuo(recommendedDan, recommendedTuo, 5);
+      }
+      
+      setDantuoRecommendation({
+        dan: recommendedDan,
+        tuo: recommendedTuo,
+        backDan: (useDoubleZone || useBackZoneDanTuo) ? backDanNumbers : [],
+        backTuo: (useDoubleZone || useBackZoneDanTuo) ? backTuoNumbers : [],
+        backRecommendationInfo: backRecommendationInfo, // 后区推荐信息（始终显示）
+        result: result,
+        strategy: strategyName,
+        description: description
+      });
+    } catch (error) {
+      console.error('推荐失败:', error);
+    }
+  };
+
+  // 胆拖玩法 - 一键复制
+  const handleCopyDanTuo = () => {
+    if (!dantuoResult || dantuoResult.combinations.length === 0) {
+      alert('请先生成胆拖组合！');
+      return;
+    }
+
+    let text = `🎯 胆拖玩法 - 投注组合\n`;
+    text += `生成时间: ${dantuoResult.generatedAt}\n`;
+    text += `========================================\n\n`;
+    
+    // 胆拖信息
+    text += `【胆拖配置】\n`;
+    text += `胆码: [${dantuoResult.danNumbers.map(n => n.toString().padStart(2, '0')).join(', ')}]\n`;
+    text += `拖码: [${dantuoResult.tuoNumbers.map(n => n.toString().padStart(2, '0')).join(', ')}]\n`;
+    
+    if (useDoubleZone && backDanNumbers.length > 0) {
+      text += `后区胆码: [${backDanNumbers.map(n => n.toString().padStart(2, '0')).join(', ')}]\n`;
+      text += `后区拖码: [${backTuoNumbers.map(n => n.toString().padStart(2, '0')).join(', ')}]\n`;
+    }
+    
+    text += `\n【统计信息】\n`;
+    text += `总注数: ${dantuoResult.totalBets} 注\n`;
+    text += `总费用: ${dantuoResult.cost} 元\n`;
+    
+    // 质量分析
+    if (dantuoResult.danQuality) {
+      text += `\n【胆码质量】\n`;
+      text += `质量评分: ${dantuoResult.danQuality.qualityScore}/100\n`;
+      text += `热号数量: ${dantuoResult.danQuality.hotDanCount}\n`;
+      text += `冷号数量: ${dantuoResult.danQuality.coldDanCount}\n`;
+      text += `AC值: ${dantuoResult.danQuality.acValue}\n`;
+      text += `奇偶比: ${dantuoResult.danQuality.oddEvenRatio}\n`;
+      text += `大小比: ${dantuoResult.danQuality.bigSmallRatio}\n`;
+    }
+    
+    text += `\n【投注组合】\n`;
+    dantuoResult.combinations.forEach((comb, idx) => {
+      const frontStr = comb.front.map(n => n.toString().padStart(2, '0')).join(' ');
+      const backStr = comb.back ? comb.back.map(n => n.toString().padStart(2, '0')).join(' ') : '';
+      text += `${idx + 1}. ${frontStr}${backStr ? ' | ' + backStr : ''}\n`;
+    });
+    
+    text += `\n========================================\n`;
+    text += `总计: ${dantuoResult.totalBets} 注 | ${dantuoResult.cost} 元\n`;
+
+    // 复制到剪贴板
+    navigator.clipboard.writeText(text).then(() => {
+      setCopySuccess(true);
+      setTimeout(() => setCopySuccess(false), 2000);
+      
+      // 追踪复制行为
+      trackCopy('dantuo', dantuoResult.totalBets);
+    }).catch(err => {
+      console.error('复制失败:', err);
+      alert('复制失败，请手动复制');
+    });
+  };
+
   const formatPredictions = () => {
     if (predictions.length === 0) return '';
     
@@ -567,6 +914,359 @@ function App() {
                     </div>
                   </div>
                 </div>
+              </div>
+            </div>
+          )}
+        </section>
+
+        {/* 数据可视化 */}
+        <section className="card">
+          <div className="visualization-header">
+            <h2>📈 数据可视化分析</h2>
+            <button 
+              onClick={() => setShowVisualization(!showVisualization)}
+              className="toggle-visualization-btn"
+            >
+              {showVisualization ? '🔼 收起' : '🔽 展开'}
+            </button>
+          </div>
+          {showVisualization && (
+            <DataVisualization historyData={analyzer.historyData} />
+          )}
+        </section>
+
+        {/* 胆拖玩法 */}
+        <section className="card dantuo-section">
+          <h2>🎯 胆拖玩法</h2>
+          
+          {/* 模式切换 */}
+          <div className="dantuo-mode-toggle">
+            <button 
+              className={!useDoubleZone ? 'active' : ''}
+              onClick={() => setUseDoubleZone(false)}
+            >
+              前区胆拖
+            </button>
+            <button 
+              className={useDoubleZone ? 'active' : ''}
+              onClick={() => setUseDoubleZone(true)}
+            >
+              双区胆拖
+            </button>
+          </div>
+
+          {/* 前区胆拖模式下的后区选择开关 */}
+          {!useDoubleZone && (
+            <div className="dantuo-option-toggle">
+              <label className="option-switch">
+                <input 
+                  type="checkbox" 
+                  checked={useBackZoneDanTuo}
+                  onChange={(e) => setUseBackZoneDanTuo(e.target.checked)}
+                />
+                <span className="switch-slider"></span>
+                <span className="option-label">自选后区（胆拖）</span>
+              </label>
+            </div>
+          )}
+
+          {/* 后区一胆全拖开关（仅双区模式） */}
+          {useDoubleZone && (
+            <div className="dantuo-option-toggle">
+              <label className="option-switch">
+                <input 
+                  type="checkbox" 
+                  checked={useBackFullDrag}
+                  onChange={(e) => setUseBackFullDrag(e.target.checked)}
+                />
+                <span className="switch-slider"></span>
+                <span className="option-label">后区一胆全拖（胆码1个，拖码11个）</span>
+              </label>
+            </div>
+          )}
+
+          {/* 智能推荐策略选择 */}
+          <div className="strategy-selector">
+            <span className="strategy-label">推荐策略:</span>
+            <button 
+              className={`strategy-btn ${recommendStrategy === 'hot' ? 'active' : ''}`}
+              onClick={() => handleRecommendDanTuo('hot')}
+            >
+              🔥 热号策略
+            </button>
+            <button 
+              className={`strategy-btn ${recommendStrategy === 'balanced' ? 'active' : ''}`}
+              onClick={() => handleRecommendDanTuo('balanced')}
+            >
+              ⚖️ 均衡策略
+            </button>
+            <button 
+              className={`strategy-btn ${recommendStrategy === 'conservative' ? 'active' : ''}`}
+              onClick={() => handleRecommendDanTuo('conservative')}
+            >
+              🛡️ 保守策略
+            </button>
+          </div>
+
+          {/* 前区选择 */}
+          <div className="dantuo-zone">
+            <h3>前区号码 (1-35)</h3>
+            
+            {/* 胆码选择 */}
+            <div className="number-selection">
+              <div className="selection-label">
+                <span className="label-text">胆码 (必选)</span>
+                <span className="label-count">{danNumbers.length}/4</span>
+              </div>
+              <div className="selected-numbers dan-numbers">
+                {danNumbers.map(num => (
+                  <span key={num} className="selected-number dan" onClick={() => toggleDanNumber(num)}>
+                    {num.toString().padStart(2, '0')}
+                  </span>
+                ))}
+                {danNumbers.length === 0 && <span className="placeholder">请选择1-4个胆码</span>}
+              </div>
+            </div>
+
+            {/* 拖码选择 */}
+            <div className="number-selection">
+              <div className="selection-label">
+                <span className="label-text">拖码 (可选)</span>
+                <span className="label-count">{tuoNumbers.length}/{35 - danNumbers.length}</span>
+              </div>
+              <div className="selected-numbers tuo-numbers">
+                {tuoNumbers.map(num => (
+                  <span key={num} className="selected-number tuo" onClick={() => toggleTuoNumber(num)}>
+                    {num.toString().padStart(2, '0')}
+                  </span>
+                ))}
+                {tuoNumbers.length === 0 && <span className="placeholder">请选择至少1个拖码</span>}
+              </div>
+            </div>
+
+            {/* 号码选择器 */}
+            <div className="number-picker">
+              {Array.from({ length: 35 }, (_, i) => i + 1).map(num => {
+                const isDan = danNumbers.includes(num);
+                const isTuo = tuoNumbers.includes(num);
+                return (
+                  <button
+                    key={num}
+                    className={`number-btn ${isDan ? 'dan-selected' : ''} ${isTuo ? 'tuo-selected' : ''}`}
+                    onClick={() => {
+                      if (isDan) toggleDanNumber(num);
+                      else if (isTuo) toggleTuoNumber(num);
+                      else if (danNumbers.length < 4) toggleDanNumber(num);
+                      else toggleTuoNumber(num);
+                    }}
+                  >
+                    {num.toString().padStart(2, '0')}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* 后区选择（双区模式或前区胆拖+后区胆拖） */}
+          {(useDoubleZone || useBackZoneDanTuo) && (
+            <div className="dantuo-zone back-zone back-zone-compact">
+              <h3>后区号码 (1-12)</h3>
+              
+              <div className="back-zone-content">
+                {/* 左侧：已选号码 */}
+                <div className="back-selected">
+                  {/* 后区胆码 */}
+                  <div className="number-selection compact">
+                    <div className="selection-label">
+                      <span className="label-text">胆码</span>
+                      <span className="label-count">{backDanNumbers.length}/1</span>
+                    </div>
+                    <div className="selected-numbers dan-numbers compact">
+                      {backDanNumbers.map(num => (
+                        <span key={num} className="selected-number dan small" onClick={() => toggleBackDanNumber(num)}>
+                          {num.toString().padStart(2, '0')}
+                        </span>
+                      ))}
+                      {backDanNumbers.length === 0 && <span className="placeholder small">未选</span>}
+                    </div>
+                  </div>
+
+                  {/* 后区拖码 */}
+                  <div className="number-selection compact">
+                    <div className="selection-label">
+                      <span className="label-text">拖码</span>
+                      <span className="label-count">{backTuoNumbers.length}/{12 - backDanNumbers.length}</span>
+                    </div>
+                    <div className="selected-numbers tuo-numbers compact">
+                      {backTuoNumbers.map(num => (
+                        <span key={num} className="selected-number tuo small" onClick={() => toggleBackTuoNumber(num)}>
+                          {num.toString().padStart(2, '0')}
+                        </span>
+                      ))}
+                      {backTuoNumbers.length === 0 && <span className="placeholder small">未选</span>}
+                    </div>
+                  </div>
+                </div>
+
+                {/* 右侧：号码选择器 */}
+                <div className="back-picker">
+                  <div className="number-picker compact">
+                    {Array.from({ length: 12 }, (_, i) => i + 1).map(num => {
+                      const isDan = backDanNumbers.includes(num);
+                      const isTuo = backTuoNumbers.includes(num);
+                      return (
+                        <button
+                          key={num}
+                          className={`number-btn ${isDan ? 'dan-selected' : ''} ${isTuo ? 'tuo-selected' : ''} compact`}
+                          onClick={() => {
+                            if (isDan) toggleBackDanNumber(num);
+                            else if (isTuo) toggleBackTuoNumber(num);
+                            else if (backDanNumbers.length < 1) toggleBackDanNumber(num);
+                            else toggleBackTuoNumber(num);
+                          }}
+                        >
+                          {num.toString().padStart(2, '0')}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* 预览和生成按钮 */}
+          <div className="dantuo-preview">
+            <div className="preview-info">
+              <div className="info-item">
+                <span className="info-label">预计注数:</span>
+                <span className="info-value">{calculateDanTuoBets()} 注</span>
+              </div>
+              <div className="info-item">
+                <span className="info-label">预计费用:</span>
+                <span className="info-value cost">{calculateDanTuoBets() * 2} 元</span>
+              </div>
+              {dantuoResult && dantuoResult.danQuality && (
+                <div className="info-item">
+                  <span className="info-label">胆码质量:</span>
+                  <span className={`info-value quality quality-${
+                    dantuoResult.danQuality.qualityScore >= 80 ? 'high' :
+                    dantuoResult.danQuality.qualityScore >= 60 ? 'medium' : 'low'
+                  }`}>
+                    {dantuoResult.danQuality.qualityScore}/100
+                  </span>
+                </div>
+              )}
+            </div>
+            <div className="action-buttons">
+              <button 
+                className="generate-btn"
+                onClick={handleGenerateDanTuo}
+                disabled={danNumbers.length === 0 || tuoNumbers.length === 0}
+              >
+                生成组合
+              </button>
+            </div>
+          </div>
+
+          {/* 推荐提示 */}
+          {dantuoRecommendation && (
+            <div className="recommendation-tip">
+              <div className="tip-header">
+                <span className="tip-icon">💡</span>
+                <span className="tip-title">{dantuoRecommendation.strategy}</span>
+              </div>
+              <p className="tip-description">{dantuoRecommendation.description}</p>
+              <div className="tip-numbers">
+                <span>前区胆码: </span>
+                <strong>{dantuoRecommendation.dan.map(n => n.toString().padStart(2, '0')).join(', ')}</strong>
+              </div>
+              {(useDoubleZone || useBackZoneDanTuo) && dantuoRecommendation.backDan && dantuoRecommendation.backDan.length > 0 && (
+                <div className="tip-numbers">
+                  <span>后区胆码: </span>
+                  <strong>{dantuoRecommendation.backDan.map(n => n.toString().padStart(2, '0')).join(', ')}</strong>
+                </div>
+              )}
+              {/* 始终显示后区推荐信息 */}
+              {dantuoRecommendation.backRecommendationInfo && (
+                <div className="back-recommendation">
+                  <div className="back-rec-header">
+                    <span className="back-rec-icon"></span>
+                    <span className="back-rec-title">后区推荐</span>
+                  </div>
+                  <p className="back-rec-info">{dantuoRecommendation.backRecommendationInfo}</p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* 结果展示 */}
+          {dantuoResult && (
+            <div className="dantuo-result">
+              <div className="result-header">
+                <h3>生成结果</h3>
+                <span className="result-summary">
+                  共 {dantuoResult.totalBets} 注 | 费用 {dantuoResult.cost} 元
+                </span>
+              </div>
+              
+              {/* 胆码质量详情 */}
+              {dantuoResult.danQuality && (
+                <div className="quality-details">
+                  <div className="quality-item">
+                    <span>热号数量:</span>
+                    <span>{dantuoResult.danQuality.hotDanCount}</span>
+                  </div>
+                  <div className="quality-item">
+                    <span>冷号数量:</span>
+                    <span>{dantuoResult.danQuality.coldDanCount}</span>
+                  </div>
+                  <div className="quality-item">
+                    <span>AC值:</span>
+                    <span>{dantuoResult.danQuality.acValue}</span>
+                  </div>
+                  <div className="quality-item">
+                    <span>奇偶比:</span>
+                    <span>{dantuoResult.danQuality.oddEvenRatio}</span>
+                  </div>
+                  <div className="quality-item">
+                    <span>大小比:</span>
+                    <span>{dantuoResult.danQuality.bigSmallRatio}</span>
+                  </div>
+                </div>
+              )}
+
+              {/* 组合列表 */}
+              <div className="combinations-list">
+                {dantuoResult.combinations.slice(0, 20).map((comb, idx) => (
+                  <div key={idx} className="combination-item">
+                    <span className="combo-index">{idx + 1}.</span>
+                    <span className="combo-front">
+                      {comb.front.map(n => n.toString().padStart(2, '0')).join(' ')}
+                    </span>
+                    {comb.back && comb.back.length > 0 && (
+                      <span className="combo-back">
+                        | {comb.back.map(n => n.toString().padStart(2, '0')).join(' ')}
+                      </span>
+                    )}
+                  </div>
+                ))}
+                {dantuoResult.totalBets > 20 && (
+                  <div className="more-hint">
+                    ... 还有 {dantuoResult.totalBets - 20} 注未显示
+                  </div>
+                )}
+              </div>
+
+              {/* 复制按钮 */}
+              <div className="copy-section">
+                <button 
+                  className="copy-btn"
+                  onClick={handleCopyDanTuo}
+                >
+                  {copySuccess ? '✅ 已复制' : '📋 一键复制'}
+                </button>
+                <p className="copy-hint">复制后可粘贴到微信、QQ等聊天工具</p>
               </div>
             </div>
           )}

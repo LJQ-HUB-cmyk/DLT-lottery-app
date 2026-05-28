@@ -1,0 +1,51 @@
+{
+  "sources": {
+    "dlt": [
+      {
+        "name": "500.com",
+        "url": "http://kaijiang.500.com/shtml/dlt/{period}.shtml",
+        "priority": 1
+      },
+      {
+        "name": "lottery.gov.cn",
+        "url": "https://www.lottery.gov.cn/kj/kjlb.html?dlt",
+        "priority": 2
+      },
+      {
+        "name": "17500.cn",
+        "url": "https://www.17500.cn/dhd.php?sdate={date}",
+        "priority": 3
+      }
+    ],
+    "ssq": [
+      {
+        "name": "data.17500.cn",
+        "url": "https://data.17500.cn/ssq_asc.txt",
+        "priority": 1
+      },
+      {
+        "name": "500.com",
+        "url": "https://kaijiang.500.com/shtml/ssq/{period}.shtml",
+        "priority": 2
+      },
+      {
+        "name": "lottery.gov.cn",
+        "url": "https://www.lottery.gov.cn/kj/kjlb.html?ssq",
+        "priority": 3
+      },
+      {
+        "name": "17500.cn",
+        "url": "https://www.17500.cn/shuangseqiu.php?sdate={date}",
+        "priority": 4
+      }
+    ]
+  },
+  "settings": {
+    "timeout": 15,
+    "max_retries": 3,
+    "retry_interval": 300,
+    "backup_enabled": true,
+    "auto_switch_on_failure": true,
+    "data_dir": "./lottery-app/src/data"
+  }
+}

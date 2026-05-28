@@ -176,6 +176,13 @@ h1 {
   border: 1px solid #ebeef5;
 }
 
+.card h2 {
+  color: #303133;
+  font-size: 1.5em;
+  margin: 0 0 15px 0;
+  font-weight: 600;
+}
+
 .stats-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -707,6 +714,11 @@ button.success {
 }
 
 @media (max-width: 768px) {
+  .card h2 {
+    color: #303133 !important;
+    font-size: 1.3em !important;
+  }
+  
   .stats-grid {
     grid-template-columns: 1fr;
   }
@@ -2094,6 +2106,22 @@ button.success {
   align-items: flex-start;
 }
 
+@media (max-width: 768px) {
+  .back-zone-content {
+    flex-direction: column;
+    gap: 10px;
+  }
+  
+  .back-selected {
+    width: 100%;
+    min-width: auto;
+  }
+  
+  .back-picker {
+    width: 100%;
+  }
+}
+
 .back-selected {
   flex: 0 0 auto;
   min-width: 180px;
@@ -2567,4 +2595,53 @@ button.success {
   margin-top: 10px;
   color: #999;
   font-size: 0.85em;
+}
+
+/* 双区胆拖移动端适配 */
+@media (max-width: 768px) {
+  /* 后区内容纵向排列 */
+  .back-zone-content {
+    flex-direction: column !important;
+    gap: 10px !important;
+  }
+  
+  .back-selected,
+  .back-picker {
+    width: 100% !important;
+    min-width: auto !important;
+  }
+  
+  /* 紧凑模式号码选择器网格调整 */
+  .number-picker.compact {
+    grid-template-columns: repeat(4, 1fr) !important;
+    gap: 5px !important;
+  }
+  
+  .number-btn.compact {
+    padding: 5px !important;
+    font-size: 0.8em !important;
+  }
+  
+  /* 胆拖模式切换按钮 */
+  .dantuo-mode-toggle {
+    flex-wrap: wrap;
+  }
+  
+  .dantuo-mode-toggle button {
+    flex: 1 1 calc(50% - 5px);
+    font-size: 0.9em !important;
+    padding: 8px !important;
+  }
+  
+  /* 策略按钮 */
+  .strategy-buttons {
+    flex-wrap: wrap;
+    gap: 8px !important;
+  }
+  
+  .strategy-btn {
+    flex: 1 1 calc(33% - 8px);
+    font-size: 0.85em !important;
+    padding: 6px 12px !important;
+  }
 }

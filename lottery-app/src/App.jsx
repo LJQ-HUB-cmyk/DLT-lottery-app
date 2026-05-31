@@ -114,6 +114,7 @@ function App() {
   const [showHistory, setShowHistory] = useState(false);
   const [groupsPerModel, setGroupsPerModel] = useState(5);
   const [recommendSampleSize, setRecommendSampleSize] = useState(80); // 推荐算法样本量
+  const [dataWindow, setDataWindow] = useState(0); // 历史数据窗口：0=全部，N=最近N期
   const [copySuccess, setCopySuccess] = useState(false);
   const [currentRecommendation, setCurrentRecommendation] = useState(null); // 当前推荐结果
   
@@ -135,6 +136,8 @@ function App() {
   const [recommendStrategy, setRecommendStrategy] = useState('hot'); // 推荐策略: hot-热号, balanced-均衡, conservative-保守
   const [hasGeneratedToday, setHasGeneratedToday] = useState(false); // 今日是否已生成（用户主动操作）
   const [useBackZoneDanTuo, setUseBackZoneDanTuo] = useState(false); // 前区胆拖模式下是否使用后区胆拖
+  const [selectionMode, setSelectionMode] = useState('dan'); // 选择模式: dan-胆码, tuo-拖码
+  const [backSelectionMode, setBackSelectionMode] = useState('dan'); // 后区选择模式
 
   // 从数据中获取最后一组（最新一期）号码
   const getLatestDrawFromData = () => {
@@ -218,13 +221,16 @@ function App() {
     setDataInput(defaultData);
   };
 
-  // 立即分析推荐模型
+    // 立即分析推荐模型
   const handleAnalyzeRecommendation = () => {
     const latestDraw = getLatestDrawFromData();
     if (!latestDraw) {
       alert('请先加载历史数据！');
       return;
     }
+    
+    // 设置数据窗口
+    analyzer.setDataWindow(dataWindow);
     
     // 清除之前的推荐结果，触发重新计算
     setCurrentRecommendation(null);
@@ -308,37 +314,28 @@ function App() {
         const groups = groupsPerModel || 5;
         const results = [];
         selectedModels.forEach(model => {
-          // 旋转矩阵特殊处理：一次性生成多组
+          // 旋转矩阵特殊处理：使用去重生成
           if (model === 'rotation') {
-            const rotationResults = analyzer.generateRotationMatrixPrediction(groups);
-            if (Array.isArray(rotationResults)) {
-              rotationResults.forEach((group, idx) => {
-                results.push({
-                  model,
-                  groupNum: idx + 1,
-                  front: group.front,
-                  back: group.back
-                });
-              });
-            }
-          } else {
-            // 其他模型：按组数循环生成
-            for (let i = 0; i < groups; i++) {
-              let comb;
-              if (model === 'omission') comb = analyzer.generateOmissionBasedPrediction();
-              else if (model === 'time_decay') comb = analyzer.generateTimeDecayPrediction();
-              else if (model === 'bayesian') comb = analyzer.generateBayesianPrediction();
-              else if (model === 'zhouyi') comb = analyzer.generateZhouyiPrediction(i); // 周易不缓存，每次都重新生成
-              else if (model === 'hybrid') comb = analyzer.generateHybridPrediction();
-              else comb = analyzer.generateStatisticalPrediction(model);
-              
+            const rotationResults = analyzer.generateUniqueRotationGroups(groups);
+            rotationResults.forEach((group, idx) => {
               results.push({
                 model,
-                groupNum: i + 1,
-                front: comb.slice(0, 5),
-                back: comb.slice(5)
+                groupNum: idx + 1,
+                front: group.front,
+                back: group.back
               });
-            }
+            });
+          } else {
+            // 其他模型：使用多组去重生成，避免后区重复
+            const uniqueGroups = analyzer.generateUniqueGroups(model, groups);
+            uniqueGroups.forEach((group, idx) => {
+              results.push({
+                model,
+                groupNum: idx + 1,
+                front: group.front,
+                back: group.back
+              });
+            });
           }
           
           // 追踪每个模型的生成
@@ -370,37 +367,28 @@ function App() {
       const groups = groupsPerModel || 5;
       const results = [];
       selectedModels.forEach(model => {
-        // 旋转矩阵特殊处理：一次性生成多组
+        // 旋转矩阵特殊处理：使用去重生成
         if (model === 'rotation') {
-          const rotationResults = analyzer.generateRotationMatrixPrediction(groups);
-          if (Array.isArray(rotationResults)) {
-            rotationResults.forEach((group, idx) => {
-              results.push({
-                model,
-                groupNum: idx + 1,
-                front: group.front,
-                back: group.back
-              });
-            });
-          }
-        } else {
-          // 其他模型：按组数循环生成
-          for (let i = 0; i < groups; i++) {
-            let comb;
-            if (model === 'omission') comb = analyzer.generateOmissionBasedPrediction();
-            else if (model === 'time_decay') comb = analyzer.generateTimeDecayPrediction();
-            else if (model === 'bayesian') comb = analyzer.generateBayesianPrediction();
-            else if (model === 'zhouyi') comb = analyzer.generateZhouyiPrediction(i); // 周易不缓存，每次都重新生成
-            else if (model === 'hybrid') comb = analyzer.generateHybridPrediction();
-            else comb = analyzer.generateStatisticalPrediction(model);
-            
+          const rotationResults = analyzer.generateUniqueRotationGroups(groups);
+          rotationResults.forEach((group, idx) => {
             results.push({
               model,
-              groupNum: i + 1,
-              front: comb.slice(0, 5),
-              back: comb.slice(5)
+              groupNum: idx + 1,
+              front: group.front,
+              back: group.back
             });
-          }
+          });
+        } else {
+          // 其他模型：使用多组去重生成，避免后区重复
+          const uniqueGroups = analyzer.generateUniqueGroups(model, groups);
+          uniqueGroups.forEach((group, idx) => {
+            results.push({
+              model,
+              groupNum: idx + 1,
+              front: group.front,
+              back: group.back
+            });
+          });
         }
         
         // 追踪每个模型的生成
@@ -575,9 +563,10 @@ function App() {
       const allCandidates = [
         ...hotNumbers.slice(2, 6),
         ...coldNumbers.slice(0, 2),
-        10, 22, 29, 35
+        8, 12, 20, 28, 35
       ];
-      recommendedTuo = allCandidates.filter(n => !recommendedDan.includes(n));
+      // 去重并排除胆码
+      recommendedTuo = [...new Set(allCandidates)].filter(n => !recommendedDan.includes(n));
       strategyName = '热号策略';
       description = '选择近期最热的2个号码+1个中间号作为胆码，提高中奖概率';
     } else if (strategy === 'balanced') {
@@ -586,9 +575,10 @@ function App() {
       const allCandidates = [
         ...hotNumbers.slice(1, 4),
         ...coldNumbers.slice(1, 4),
-        10, 22, 29, 35
+        8, 12, 20, 28, 35
       ];
-      recommendedTuo = allCandidates.filter(n => !recommendedDan.includes(n));
+      // 去重并排除胆码
+      recommendedTuo = [...new Set(allCandidates)].filter(n => !recommendedDan.includes(n));
       strategyName = '均衡策略';
       description = '热号、冷号、温号均衡搭配，兼顾趋势与回补';
     } else if (strategy === 'conservative') {
@@ -601,7 +591,8 @@ function App() {
         8, 12, 20, 28, 33, 35,
         5, 9, 14, 19, 24, 30  // 补充更多号码
       ];
-      recommendedTuo = allCandidates.filter(n => !recommendedDan.includes(n));
+      // 去重并排除胆码
+      recommendedTuo = [...new Set(allCandidates)].filter(n => !recommendedDan.includes(n));
       strategyName = '保守策略';
       description = '胆码保守选择，拖码范围更广，注数更多但覆盖面广';
     }
@@ -1044,6 +1035,22 @@ function App() {
               </div>
             </div>
 
+            {/* 选择模式切换 */}
+            <div className="selection-mode-toggle">
+              <button
+                className={`mode-btn ${selectionMode === 'dan' ? 'active dan-mode' : ''}`}
+                onClick={() => setSelectionMode('dan')}
+              >
+                🎯 选胆码
+              </button>
+              <button
+                className={`mode-btn ${selectionMode === 'tuo' ? 'active tuo-mode' : ''}`}
+                onClick={() => setSelectionMode('tuo')}
+              >
+                🔄 选拖码
+              </button>
+            </div>
+
             {/* 号码选择器 */}
             <div className="number-picker">
               {Array.from({ length: 35 }, (_, i) => i + 1).map(num => {
@@ -1056,7 +1063,7 @@ function App() {
                     onClick={() => {
                       if (isDan) toggleDanNumber(num);
                       else if (isTuo) toggleTuoNumber(num);
-                      else if (danNumbers.length < 4) toggleDanNumber(num);
+                      else if (selectionMode === 'dan') toggleDanNumber(num);
                       else toggleTuoNumber(num);
                     }}
                   >
@@ -1106,6 +1113,22 @@ function App() {
                       {backTuoNumbers.length === 0 && <span className="placeholder small">未选</span>}
                     </div>
                   </div>
+
+                  {/* 后区选择模式切换 */}
+                  <div className="selection-mode-toggle compact">
+                    <button
+                      className={`mode-btn ${backSelectionMode === 'dan' ? 'active dan-mode' : ''}`}
+                      onClick={() => setBackSelectionMode('dan')}
+                    >
+                      🎯 胆
+                    </button>
+                    <button
+                      className={`mode-btn ${backSelectionMode === 'tuo' ? 'active tuo-mode' : ''}`}
+                      onClick={() => setBackSelectionMode('tuo')}
+                    >
+                      🔄 拖
+                    </button>
+                  </div>
                 </div>
 
                 {/* 右侧：号码选择器 */}
@@ -1121,7 +1144,7 @@ function App() {
                           onClick={() => {
                             if (isDan) toggleBackDanNumber(num);
                             else if (isTuo) toggleBackTuoNumber(num);
-                            else if (backDanNumbers.length < 1) toggleBackDanNumber(num);
+                            else if (backSelectionMode === 'dan') toggleBackDanNumber(num);
                             else toggleBackTuoNumber(num);
                           }}
                         >
@@ -1337,6 +1360,22 @@ function App() {
                       </select>
                       <span className="control-hint">影响推荐的准确性</span>
                     </div>
+                    <div className="sample-size-control">
+                      <label>📅 数据窗口：</label>
+                      <select 
+                        value={dataWindow}
+                        onChange={(e) => setDataWindow(parseInt(e.target.value))}
+                        className="sample-size-select"
+                      >
+                        <option value={0}>全部数据</option>
+                        <option value={30}>最近30期</option>
+                        <option value={50}>最近50期</option>
+                        <option value={80}>最近80期</option>
+                        <option value={100}>最近100期</option>
+                        <option value={150}>最近150期</option>
+                      </select>
+                      <span className="control-hint">统计分析使用的数据范围</span>
+                    </div>
                   </div>
                   <button 
                     onClick={handleAnalyzeRecommendation} 
@@ -1358,30 +1397,53 @@ function App() {
               <div className="recommendation-header">
                 <h2>💡 智能推荐模型</h2>
                 <div className="header-controls">
-                  <div className="sample-size-control-inline">
-                    <label>样本量：</label>
-                    <select 
-                      value={recommendSampleSize}
-                      onChange={(e) => {
-                        setRecommendSampleSize(parseInt(e.target.value));
-                        // 样本量变化后自动重新分析
-                        setTimeout(() => handleAnalyzeRecommendation(), 100);
-                      }}
-                      className="sample-size-select-small"
-                    >
-                      <option value={50}>50组</option>
-                      <option value={60}>60组</option>
-                      <option value={80}>80组</option>
-                      <option value={100}>100组</option>
-                      <option value={150}>150组</option>
-                    </select>
+                  <div className="controls-row">
+                    <div className="sample-size-control-inline">
+                      <label>每组数量：</label>
+                      <select 
+                        value={recommendSampleSize}
+                        onChange={(e) => {
+                          setRecommendSampleSize(parseInt(e.target.value));
+                          // 样本量变化后自动重新分析
+                          setTimeout(() => handleAnalyzeRecommendation(), 100);
+                        }}
+                        className="sample-size-select-small"
+                      >
+                        <option value={50}>50组</option>
+                        <option value={60}>60组</option>
+                        <option value={80}>80组</option>
+                        <option value={100}>100组</option>
+                        <option value={150}>150组</option>
+                      </select>
+                    </div>
+                    <div className="sample-size-control-inline">
+                      <label>使用数据：</label>
+                      <select 
+                        value={dataWindow}
+                        onChange={(e) => {
+                          setDataWindow(parseInt(e.target.value));
+                          // 数据窗口变化后自动重新分析
+                          setTimeout(() => handleAnalyzeRecommendation(), 100);
+                        }}
+                        className="sample-size-select-small"
+                      >
+                        <option value={0}>全部</option>
+                        <option value={30}>30期</option>
+                        <option value={50}>50期</option>
+                        <option value={80}>80期</option>
+                        <option value={100}>100期</option>
+                        <option value={150}>150期</option>
+                      </select>
+                    </div>
                   </div>
-                  <button 
-                    onClick={handleAnalyzeRecommendation} 
-                    className="re-analyze-button"
-                  >
-                    🔄 重新分析
-                  </button>
+                  <div className="re-analyze-row">
+                    <button 
+                      onClick={handleAnalyzeRecommendation} 
+                      className="re-analyze-button"
+                    >
+                      🔄 重新分析
+                    </button>
+                  </div>
                 </div>
               </div>
               <div className="recommendation-content">

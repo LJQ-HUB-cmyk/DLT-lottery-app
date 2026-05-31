@@ -1083,8 +1083,19 @@ button.success {
 
 .header-controls {
   display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.controls-row {
+  display: flex;
   align-items: center;
   gap: 12px;
+}
+
+.re-analyze-row {
+  display: flex;
+  justify-content: flex-end;
 }
 
 .sample-size-control-inline {
@@ -1402,8 +1413,15 @@ button.success {
   
   .header-controls {
     width: 100%;
+  }
+  
+  .controls-row {
     flex-direction: column;
     align-items: stretch;
+  }
+  
+  .re-analyze-row {
+    justify-content: center;
   }
   
   .sample-size-control-inline {
@@ -2224,11 +2242,30 @@ button.success {
 .selected-number.dan {
   background: linear-gradient(135deg, #ff6b6b 0%, #ee5a6f 100%);
   color: white;
+  display: flex;
+  align-items: center;
+  gap: 3px;
 }
 
 .selected-number.tuo {
   background: linear-gradient(135deg, #4ecdc4 0%, #44a08d 100%);
   color: white;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+/* 已选号码胆/拖标识 */
+.number-tag {
+  font-size: 0.7em;
+  font-weight: 600;
+  padding: 1px 3px;
+  border-radius: 3px;
+  background: rgba(255,255,255,0.3);
+}
+
+.number-value {
+  font-weight: bold;
 }
 
 .selected-number:hover {
@@ -2270,12 +2307,111 @@ button.success {
   background: linear-gradient(135deg, #ff6b6b 0%, #ee5a6f 100%);
   color: white;
   border-color: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
 }
 
 .number-btn.tuo-selected {
   background: linear-gradient(135deg, #4ecdc4 0%, #44a08d 100%);
   color: white;
   border-color: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+}
+
+/* 胆/拖标识徽章 */
+.btn-tag {
+  font-size: 0.65em;
+  font-weight: 600;
+  padding: 1px 3px;
+  border-radius: 3px;
+  line-height: 1.2;
+  background: rgba(255,255,255,0.3);
+}
+
+.btn-tag.tag-dan {
+  color: #fff;
+  background: rgba(255,255,255,0.35);
+}
+
+.btn-tag.tag-tuo {
+  color: #fff;
+  background: rgba(255,255,255,0.35);
+}
+
+/* 号码球徽章 */
+.ball-badge {
+  font-size: 0.6em;
+  font-weight: 700;
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  width: 14px;
+  height: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  z-index: 2;
+}
+
+.dan-badge {
+  background: #ff4757;
+  color: white;
+  font-size: 0.55em;
+}
+
+.tuo-badge {
+  background: #2ecc71;
+  color: white;
+  font-size: 0.55em;
+}
+
+/* 选择模式切换按钮 */
+.selection-mode-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0;
+  padding: 4px 0;
+}
+
+.mode-btn {
+  padding: 6px 14px;
+  border: 2px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.85em;
+  font-weight: 500;
+  transition: all 0.2s ease;
+  background: #f0f3ff;
+  color: #666;
+}
+
+.mode-btn.active.dan-mode {
+  background: linear-gradient(135deg, #ff6b6b, #ee5a6f);
+  color: white;
+  border-color: transparent;
+  box-shadow: 0 2px 8px rgba(238, 90, 111, 0.3);
+}
+
+.mode-btn.active.tuo-mode {
+  background: linear-gradient(135deg, #4ecdc4, #44a08d);
+  color: white;
+  border-color: transparent;
+  box-shadow: 0 2px 8px rgba(78, 205, 196, 0.3);
+}
+
+.mode-btn:hover {
+  transform: translateY(-1px);
+}
+
+.mode-icon {
+  font-size: 0.9em;
 }
 
 .dantuo-preview {

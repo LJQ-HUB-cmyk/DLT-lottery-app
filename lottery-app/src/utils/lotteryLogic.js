@@ -2,7 +2,7 @@
  * 彩票分析核心逻辑 (迁移自 Python)
  */
 
-// 配置常量（基于208期历史数据优化）
+  // 配置常量（基于208期历史数据优化）
 const CONFIG = {
   FRONT_COUNT: 5,           // 前区号码数量
   BACK_COUNT: 2,            // 后区号码数量
@@ -13,26 +13,42 @@ const CONFIG = {
   COLD_NUMBERS_COUNT: 10,   // 冷号数量
   ROTATION_HIGH_FREQ: 15,   // 旋转矩阵高频号数量
   ROTATION_LOW_FREQ: 6,     // 旋转矩阵后区高频号数量
-  BAYESIAN_CANDIDATE_FRONT: 18,  // 贝叶斯前区候选数量（增加到18以提高覆盖率）
-  BAYESIAN_CANDIDATE_BACK: 8,    // 贝叶斯后区候选数量
+  BAYESIAN_CANDIDATE_FRONT: 18,  // 贝叶斯前区候选数量
+  BAYESIAN_CANDIDATE_BACK: 10,   // 贝叶斯后区候选数量（从8扩至10，增加多样性）
   DISTRIBUTION_TRY_COUNT: 500,   // 分布策略尝试次数
   TIME_DECAY_FACTOR: 0.95,  // 时间衰减因子
   HYBRID_MODEL_COUNT: 3,    // 混合模型使用的模型数量
-  QUALITY_SCORE_THRESHOLD: 75,  // 质量评分阈值（从80降至75，提高通过率）
-  RECENT_DRAWS_FOR_TREND: 15,  // 用于趋势分析的最近期数（从10增至15）
+  QUALITY_SCORE_THRESHOLD: 75,  // 质量评分阈值
+  RECENT_DRAWS_FOR_TREND: 15,  // 用于趋势分析的最近期数
   ADAPTIVE_WEIGHT_WINDOW: 15,  // 自适应权重窗口大小
-  // 基于208期数据的新增配置
-  AC_VALUE_MIN: 3,          // AC值最小可接受值（从2提高到3）
-  AC_VALUE_MAX: 7,          // AC值最大可接受值（从9降到7）
+  // 后区多样性控制参数（新增 - 解决后区号码重复问题）
+  BACK_WEIGHT_CAP: 3,       // 后区权重上限（防止热号权重过大）
+  BACK_RANDOM_BONUS: 0.5,   // 后区随机加分（给冷号更多机会）
+  BACK_NOISE_FACTOR: 0.3,   // 后区权重噪声因子（增加随机性）
+  BACK_STRATIFIED_ODD: true, // 后区分层采样：保证奇偶分布
+  // 前区多样性控制参数（新增）
+  FRONT_WEIGHT_CAP: 5,      // 前区权重上限
+  FRONT_RANDOM_BONUS: 0.3,  // 前区随机加分
+  FRONT_NOISE_FACTOR: 0.15, // 前区权重噪声因子
+  // 条件概率与关联性控制参数（自适应优化）
+  // 注意：以下为基础权重，实际权重 = 基础权重 * confidence（自适应缩放）
+  CONDITIONAL_WEIGHT: 0.15,      // 前区条件概率基础权重
+  CORRELATION_WEIGHT: 0.10,      // 号码关联性权重
+  BACK_CONDITIONAL_WEIGHT: 0.20, // 后区条件概率基础权重
+  UNIQUE_BACK_ATTEMPTS: 15,      // 单组后区唯一性尝试次数
+  UNIQUE_BACK_TOTAL_FACTOR: 30,  // 总尝试次数倍数因子
+  // 基于208期数据的配置
+  AC_VALUE_MIN: 3,          // AC值最小可接受值
+  AC_VALUE_MAX: 7,          // AC值最大可接受值
   AC_VALUE_IDEAL_MIN: 4,    // AC值理想范围下限
   AC_VALUE_IDEAL_MAX: 6,    // AC值理想范围上限
   CONSECUTIVE_GROUPS_MAX: 2, // 最大连号组数
-  GAP_VARIANCE_MIN: 8,      // 间距方差最小值（从10降至8）
-  GAP_VARIANCE_MAX: 55,     // 间距方差最大值（从50增至55）
-  SUM_RANGE_MIN: 65,        // 和值合理范围下限（从50提高到65）
-  SUM_RANGE_MAX: 115,       // 和值合理范围上限（从130降到115）
-  SPAN_DIFF_THRESHOLD: 12,  // 跨度差异阈值（从10增至12）
-  SUM_DIFF_THRESHOLD: 35,   // 和值差异阈值（从30增至35）
+  GAP_VARIANCE_MIN: 8,      // 间距方差最小值
+  GAP_VARIANCE_MAX: 55,     // 间距方差最大值
+  SUM_RANGE_MIN: 65,        // 和值合理范围下限
+  SUM_RANGE_MAX: 115,       // 和值合理范围上限
+  SPAN_DIFF_THRESHOLD: 12,  // 跨度差异阈值
+  SUM_DIFF_THRESHOLD: 35,   // 和值差异阈值
 };
 
 class LotteryAnalyzer {
@@ -40,6 +56,7 @@ class LotteryAnalyzer {
     this.frontNumbers = Array.from({ length: CONFIG.FRONT_RANGE }, (_, i) => i + 1);
     this.backNumbers = Array.from({ length: CONFIG.BACK_RANGE }, (_, i) => i + 1);
     this.historyData = [];
+    this.dataWindow = 0; // 历史数据窗口：0=全部数据，N=最近N期数据
     
     // 缓存机制
     this.cache = {
@@ -53,8 +70,35 @@ class LotteryAnalyzer {
       spanAnalysis: null,    // 跨度分析缓存
       repeatNumbers: null,   // 重号分析缓存
       modelPerformance: null, // 模型表现缓存
+      backPairFrequency: null,
+      conditionalProbability: null,
+      numberCorrelation: null,
       dataVersion: 0
     };
+  }
+
+  /**
+   * 设置历史数据窗口（控制统计分析使用多少期最新数据）
+   * @param {number} window - 窗口大小：0=全部数据，N=最近N期
+   */
+  setDataWindow(window) {
+    const newWindow = Math.max(0, Math.min(window, this.historyData.length));
+    if (newWindow !== this.dataWindow) {
+      this.dataWindow = newWindow;
+      this.clearCache(); // 窗口变化时清缓存
+      console.log(`📊 历史数据窗口已设置为: ${newWindow === 0 ? '全部' : `最近${newWindow}期`}（共${this.historyData.length}期数据）`);
+    }
+  }
+
+  /**
+   * 获取当前窗口内的活跃数据
+   * @returns {Array} 用于统计分析的历史数据
+   */
+  getActiveData() {
+    if (this.dataWindow > 0) {
+      return this.historyData.slice(-this.dataWindow);
+    }
+    return this.historyData;
   }
 
   /**
@@ -72,6 +116,9 @@ class LotteryAnalyzer {
       spanAnalysis: null,
       repeatNumbers: null,
       modelPerformance: null,
+      backPairFrequency: null,
+      conditionalProbability: null,
+      numberCorrelation: null,
       dataVersion: this.cache.dataVersion + 1
     };
   }
@@ -140,7 +187,7 @@ class LotteryAnalyzer {
       backCounter[i] = 0;
     }
     
-    for (const data of this.historyData) {
+    for (const data of this.getActiveData()) {
       for (const num of data.front) {
         frontCounter[num]++;
       }
@@ -238,7 +285,7 @@ class LotteryAnalyzer {
     const sumCount = { front: {}, back: {} };
     
     // 统计历史数据中的和值分布
-    for (const data of this.historyData) {
+    for (const data of this.getActiveData()) {
       const frontSum = data.front.reduce((a, b) => a + b, 0);
       const backSum = data.back.reduce((a, b) => a + b, 0);
       
@@ -247,7 +294,8 @@ class LotteryAnalyzer {
     }
     
     // 计算概率
-    const totalDraws = this.historyData.length || 1;
+    const activeData = this.getActiveData();
+    const totalDraws = activeData.length || 1;
     const frontProb = {};
     const backProb = {};
     
@@ -266,72 +314,108 @@ class LotteryAnalyzer {
     const [frontCounter, backCounter] = this.analyzeFrequency();
     const [expFront, expBack] = this.calculateExpectedValue();
     const variance = this.calculateVariance();
+    const conditionalProb = this.calculateConditionalProbability(); // 新增：条件概率
     
     let front = [], back = [];
     
     if (strategy === 'weighted') {
-      const uniqueFrontNums = Object.keys(frontCounter).map(Number);
-      const uniqueFrontWeights = Object.values(frontCounter);
+      // 优化：频率加权 + 条件概率融合
+      // 将条件概率作为额外权重叠加到频率权重上
+      const frontWeightsWithConditional = {};      
       for (let n = 1; n <= CONFIG.FRONT_RANGE; n++) {
-        if (!frontCounter[n]) {
-          uniqueFrontNums.push(n);
-          uniqueFrontWeights.push(1);
-        }
+        const freqWeight = (frontCounter[n] || 0) + 1;
+        const condWeight = (conditionalProb.front[n] || 0) * CONFIG.CONDITIONAL_WEIGHT * conditionalProb.confidence * 10;
+        frontWeightsWithConditional[n] = freqWeight + condWeight;
       }
       
-      const uniqueBackNums = Object.keys(backCounter).map(Number);
-      const uniqueBackWeights = Object.values(backCounter);
+      const backWeightsWithConditional = {};      
       for (let n = 1; n <= CONFIG.BACK_RANGE; n++) {
-        if (!backCounter[n]) {
-          uniqueBackNums.push(n);
-          uniqueBackWeights.push(1);
-        }
+        const freqWeight = (backCounter[n] || 0) + 1;
+        const condWeight = (conditionalProb.back[n] || 0) * CONFIG.BACK_CONDITIONAL_WEIGHT * conditionalProb.confidence * 10;
+        backWeightsWithConditional[n] = freqWeight + condWeight;
       }
       
-      front = this.weightedSampleNoReplacement(uniqueFrontNums, uniqueFrontWeights, CONFIG.FRONT_COUNT);
-      back = this.weightedSampleNoReplacement(uniqueBackNums, uniqueBackWeights, CONFIG.BACK_COUNT);
+      front = this.smartFrontSample(frontWeightsWithConditional, CONFIG.FRONT_COUNT);
+      back = this.smartBackSample(backWeightsWithConditional, 'weighted');
       
     } else if (strategy === 'regression') {
-      // 添加最大迭代次数限制，防止无限循环
-      let iterations = 0;
-      while (front.length < CONFIG.FRONT_COUNT && iterations < CONFIG.MAX_ITERATIONS) {
-        const num = Math.round(this.gaussianRandom(expFront, variance.frontStd));
-        if (num >= 1 && num <= CONFIG.FRONT_RANGE && !front.includes(num)) {
-          front.push(num);
-        }
-        iterations++;
+      // 均值回归模型 v2 - 完全重构
+      // 核心思路：基于期望值的回归权重 + 条件概率融合 + smartFrontSample
+      // 每个号码的权重 = 遗漏回归倾向（离期望值越远越容易回归） + 条件概率加成
+      const omission = this.calculateOmission();
+      const frontOmissionValues = Object.values(omission.front);
+      const frontAvgOmission = frontOmissionValues.reduce((a, b) => a + b, 0) / frontOmissionValues.length;
+      const backOmissionValues = Object.values(omission.back);
+      const backAvgOmission = backOmissionValues.reduce((a, b) => a + b, 0) / backOmissionValues.length;
+      
+      // 前区：回归权重 = 遗漏偏差因子 + 期望值接近度 + 条件概率 + 频率基线
+      const frontRegressionWeights = {};      
+      for (let i = 1; i <= CONFIG.FRONT_RANGE; i++) {
+        const freqBaseline = (frontCounter[i] || 0) + 1; // 频率基线
+        // 遗漏回归因子：当前遗漏偏离平均遗漏越多，回归倾向越强
+        const currentOmission = omission.front[i] || 0;
+        const omissionDeviation = Math.abs(currentOmission - frontAvgOmission);
+        const regressionFactor = 1 + omissionDeviation / frontAvgOmission;
+        // 期望值接近度：号码值越接近期望值，权重略高（温和偏好）
+        const distanceFromExp = Math.abs(i - expFront);
+        const expFactor = 1 + (CONFIG.FRONT_RANGE - distanceFromExp) / CONFIG.FRONT_RANGE * 0.3;
+        // 条件概率加成
+        const condFactor = (conditionalProb.front[i] || 0) * CONFIG.CONDITIONAL_WEIGHT * conditionalProb.confidence * 8;
+        frontRegressionWeights[i] = freqBaseline * regressionFactor * expFactor + condFactor;
       }
       
-      iterations = 0;
-      while (back.length < CONFIG.BACK_COUNT && iterations < CONFIG.MAX_ITERATIONS) {
-        const num = Math.round(this.gaussianRandom(expBack, variance.backStd));
-        if (num >= 1 && num <= CONFIG.BACK_RANGE && !back.includes(num)) {
-          back.push(num);
-        }
-        iterations++;
+      // 后区：回归权重 + 条件概率融合
+      const backRegressionWeights = {};      
+      for (let i = 1; i <= CONFIG.BACK_RANGE; i++) {
+        const freqBaseline = (backCounter[i] || 0) + 1;
+        const currentOmission = omission.back[i] || 0;
+        const omissionDeviation = Math.abs(currentOmission - backAvgOmission);
+        const regressionFactor = 1 + omissionDeviation / backAvgOmission;
+        const distanceFromExp = Math.abs(i - expBack);
+        const expFactor = 1 + (CONFIG.BACK_RANGE - distanceFromExp) / CONFIG.BACK_RANGE * 0.2;
+        const condFactor = (conditionalProb.back[i] || 0) * CONFIG.BACK_CONDITIONAL_WEIGHT * conditionalProb.confidence * 8;
+        backRegressionWeights[i] = freqBaseline * regressionFactor * expFactor + condFactor;
       }
       
-      // 如果未能选够号码，用随机号码补充
-      if (front.length < CONFIG.FRONT_COUNT) {
-        const remaining = this.frontNumbers.filter(n => !front.includes(n));
-        front = [...front, ...this.randomSample(remaining, CONFIG.FRONT_COUNT - front.length)];
-      }
-      if (back.length < CONFIG.BACK_COUNT) {
-        const remaining = this.backNumbers.filter(n => !back.includes(n));
-        back = [...back, ...this.randomSample(remaining, CONFIG.BACK_COUNT - back.length)];
-      }
+      front = this.smartFrontSample(frontRegressionWeights, CONFIG.FRONT_COUNT);
+      back = this.smartBackSample(backRegressionWeights, 'regression');
       
     } else if (strategy === 'distribution') {
-      // 优化：使用更智能的选号策略，结合质量评估
+      // 分布策略优化版：引导式搜索替代暴力搜索
+      // 先计算目标参数，然后用智能采样逐步逼近
       const targetSumFront = Math.round(expFront * CONFIG.FRONT_COUNT);
       const targetSumBack = Math.round(expBack * CONFIG.BACK_COUNT);
       
       let bestFront = null, bestBack = null;
       let bestScore = -Infinity;
       
+      // 优化：用加权采样替代纯随机采样，提高命中率
+      // 融合条件概率：频率权重 + 条件概率权重
+      const frontFreqWeights = {};      
+      const backFreqWeights = {};      
+      for (let i = 1; i <= CONFIG.FRONT_RANGE; i++) {
+        const freq = (frontCounter[i] || 0) + 1;
+        const cond = (conditionalProb.front[i] || 0) * CONFIG.CONDITIONAL_WEIGHT * conditionalProb.confidence * 10;
+        frontFreqWeights[i] = freq + cond;
+      }
+      for (let i = 1; i <= CONFIG.BACK_RANGE; i++) {
+        const freq = (backCounter[i] || 0) + 1;
+        const cond = (conditionalProb.back[i] || 0) * CONFIG.BACK_CONDITIONAL_WEIGHT * conditionalProb.confidence * 10;
+        backFreqWeights[i] = freq + cond;
+      }
+      
       for (let i = 0; i < CONFIG.DISTRIBUTION_TRY_COUNT; i++) {
-        const f = this.randomSample(this.frontNumbers, CONFIG.FRONT_COUNT);
-        const b = this.randomSample(this.backNumbers, CONFIG.BACK_COUNT);
+        // 混合策略：80%用加权采样，20%用纯随机
+        let f, b;
+        if (i < CONFIG.DISTRIBUTION_TRY_COUNT * 0.8) {
+          const frontNums = Object.keys(frontFreqWeights).map(Number);
+          const frontWeights = Object.values(frontFreqWeights);
+          f = this.weightedSampleNoReplacement(frontNums, frontWeights, CONFIG.FRONT_COUNT);
+          b = this.smartBackSample(backFreqWeights, 'distribution');
+        } else {
+          f = this.randomSample(this.frontNumbers, CONFIG.FRONT_COUNT);
+          b = this.smartBackSample(backFreqWeights, 'distribution');
+        }
         
         const sumF = f.reduce((a, b) => a + b, 0);
         const sumB = b.reduce((a, b) => a + b, 0);
@@ -339,10 +423,13 @@ class LotteryAnalyzer {
         const diffF = Math.abs(sumF - targetSumFront);
         const diffB = Math.abs(sumB - targetSumBack);
         
-        // 综合评分：和值接近度 + 组合质量
+        // 综合评分：和值接近度 + 组合质量 + 区间覆盖
         const sumScore = 100 - (diffF / targetSumFront * 50 + diffB / targetSumBack * 50);
         const qualityScore = this.evaluateCombination(f, b);
-        const totalScore = sumScore * 0.4 + qualityScore * 0.6;
+        // 区间覆盖加分
+        const zones = new Set(f.map(n => Math.floor((n - 1) / 5)));
+        const coverageBonus = zones.size >= 4 ? 5 : zones.size >= 3 ? 2 : -3;
+        const totalScore = sumScore * 0.3 + qualityScore * 0.6 + coverageBonus;
         
         if (totalScore > bestScore) {
           bestScore = totalScore;
@@ -350,8 +437,7 @@ class LotteryAnalyzer {
           bestBack = b;
         }
         
-        // 如果找到高质量组合，提前退出
-        if (diffF < 10 && diffB < 4 && qualityScore >= 70) {
+        if (diffF < 10 && diffB < 4 && qualityScore >= 70 && zones.size >= 3) {
           front = f;
           back = b;
           break;
@@ -363,7 +449,8 @@ class LotteryAnalyzer {
       if (back.length === 0) back = bestBack || this.randomSample(this.backNumbers, CONFIG.BACK_COUNT);
       
     } else if (strategy === 'balanced') {
-      // 平衡策略：混合热号、温号和冷号
+      // 平衡策略优化版：自适应冷热温比例
+      // 根据历史数据量动态调整各类型号码数量
       const sortedFront = Object.entries(frontCounter).sort((a, b) => b[1] - a[1]);
       const hotFrontNums = sortedFront.slice(0, CONFIG.HOT_NUMBERS_COUNT).map(x => Number(x[0]));
       const coldFrontNums = sortedFront.slice(-CONFIG.COLD_NUMBERS_COUNT).map(x => Number(x[0]));
@@ -374,10 +461,24 @@ class LotteryAnalyzer {
       const coldBackNums = sortedBack.slice(-4).map(x => Number(x[0]));
       const warmBackNums = sortedBack.slice(4, -4).map(x => Number(x[0]));
       
-      // 前区：1个热号 + 2个温号 + 1个冷号 + 1个随机
-      const selectedHotFront = this.randomSample(hotFrontNums, 1);
-      const selectedWarmFront = this.randomSample(warmFrontNums, Math.min(2, warmFrontNums.length));
-      const selectedColdFront = this.randomSample(coldFrontNums, Math.min(1, coldFrontNums.length));
+      // 自适应分配：根据历史数据走势决定冷热温比例
+      const sumTrend = this.analyzeSumTrend();
+      let hotCount, warmCount, coldCount, randomCount;
+      
+      if (sumTrend.trendFront > 5) {
+        // 近期和值上升，偏重热号
+        hotCount = 2; warmCount = 2; coldCount = 0; randomCount = 1;
+      } else if (sumTrend.trendFront < -5) {
+        // 近期和值下降，偏重冷号和温号
+        hotCount = 1; warmCount = 1; coldCount = 2; randomCount = 1;
+      } else {
+        // 势平稳，均衡分配
+        hotCount = 1; warmCount = 2; coldCount = 1; randomCount = 1;
+      }
+      
+      const selectedHotFront = this.randomSample(hotFrontNums, Math.min(hotCount, hotFrontNums.length));
+      const selectedWarmFront = this.randomSample(warmFrontNums, Math.min(warmCount, warmFrontNums.length));
+      const selectedColdFront = this.randomSample(coldFrontNums, Math.min(coldCount, coldFrontNums.length));
       
       const usedNumbers = new Set([...selectedHotFront, ...selectedWarmFront, ...selectedColdFront]);
       const remainingFront = this.frontNumbers.filter(n => !usedNumbers.has(n));
@@ -386,81 +487,18 @@ class LotteryAnalyzer {
       
       front = [...selectedHotFront, ...selectedWarmFront, ...selectedColdFront, ...selectedRandomFront];
       
-      // 后区：1个热号 + 1个冷号（或温号）
-      const selectedHotBack = this.randomSample(hotBackNums, 1);
-      const usedBack = new Set(selectedHotBack);
-      const remainingBack = this.backNumbers.filter(n => !usedBack.has(n));
-      const selectedRandomBack = this.randomSample(remainingBack, CONFIG.BACK_COUNT - selectedHotBack.length);
-      
-      back = [...selectedHotBack, ...selectedRandomBack];
+      // 后区：使用智能采样替代简单的热号+随机
+      // 融合条件概率
+      const backWeightsWithConditional = {};      
+      for (let n = 1; n <= CONFIG.BACK_RANGE; n++) {
+        const freq = (backCounter[n] || 0) + 1;
+        const cond = (conditionalProb.back[n] || 0) * CONFIG.BACK_CONDITIONAL_WEIGHT * conditionalProb.confidence * 10;
+        backWeightsWithConditional[n] = freq + cond;
+      }
+      back = this.smartBackSample(backWeightsWithConditional, 'balanced');
     }
     
-    front.sort((a, b) => a - b);
-    back.sort((a, b) => a - b);
-    return [...front, ...back];
-  }
-
-  generateOmissionBasedPrediction() {
-    const omission = this.calculateOmission();
-    
-    // 计算遗漏值的统计特征
-    const frontOmissionValues = Object.values(omission.front);
-    const backOmissionValues = Object.values(omission.back);
-    
-    const frontMean = frontOmissionValues.reduce((a, b) => a + b, 0) / frontOmissionValues.length;
-    const backMean = backOmissionValues.reduce((a, b) => a + b, 0) / backOmissionValues.length;
-    
-    const frontStd = Math.sqrt(
-      frontOmissionValues.reduce((sum, val) => sum + Math.pow(val - frontMean, 2), 0) / frontOmissionValues.length
-    );
-    const backStd = Math.sqrt(
-      backOmissionValues.reduce((sum, val) => sum + Math.pow(val - backMean, 2), 0) / backOmissionValues.length
-    );
-    
-    // 选择遗漏值在均值附近 ±1 标准差范围内的号码（回归理论）
-    const frontCandidates = Object.entries(omission.front)
-      .filter(([_, val]) => Math.abs(val - frontMean) <= frontStd)
-      .map(x => Number(x[0]));
-    
-    const backCandidates = Object.entries(omission.back)
-      .filter(([_, val]) => Math.abs(val - backMean) <= backStd)
-      .map(x => Number(x[0]));
-    
-    // 如果候选号码不足，扩大范围到 ±1.5 标准差
-    const frontFinal = frontCandidates.length >= CONFIG.FRONT_COUNT 
-      ? frontCandidates 
-      : Object.entries(omission.front)
-          .filter(([_, val]) => Math.abs(val - frontMean) <= frontStd * 1.5)
-          .map(x => Number(x[0]));
-    
-    const backFinal = backCandidates.length >= CONFIG.BACK_COUNT 
-      ? backCandidates 
-      : Object.entries(omission.back)
-          .filter(([_, val]) => Math.abs(val - backMean) <= backStd * 1.5)
-          .map(x => Number(x[0]));
-    
-    const front = frontFinal.length >= CONFIG.FRONT_COUNT 
-      ? this.randomSample(frontFinal, CONFIG.FRONT_COUNT) 
-      : this.randomSample(this.frontNumbers, CONFIG.FRONT_COUNT);
-    
-    const back = backFinal.length >= CONFIG.BACK_COUNT 
-      ? this.randomSample(backFinal, CONFIG.BACK_COUNT) 
-      : this.randomSample(this.backNumbers, CONFIG.BACK_COUNT);
-    
-    front.sort((a, b) => a - b);
-    back.sort((a, b) => a - b);
-    return [...front, ...back];
-  }
-
-  generateTimeDecayPrediction(decayFactor = CONFIG.TIME_DECAY_FACTOR) {
-    const weights = this.calculateTimeDecayWeights(decayFactor);
-    const frontNums = Object.keys(weights.front).map(Number);
-    const frontW = Object.values(weights.front);
-    const backNums = Object.keys(weights.back).map(Number);
-    const backW = Object.values(weights.back);
-    
-    const front = this.weightedSampleNoReplacement(frontNums, frontW, CONFIG.FRONT_COUNT);
-    const back = this.weightedSampleNoReplacement(backNums, backW, CONFIG.BACK_COUNT);
+    front = this.enforceZoneCoverage(front, 4);
     
     front.sort((a, b) => a - b);
     back.sort((a, b) => a - b);
@@ -468,13 +506,121 @@ class LotteryAnalyzer {
   }
 
   /**
-   * 周易时空预测模型（优化版 v2）
+   * 遗漏分析模型 v2 - 连续评分 + 条件概率融合
+   * 核心改进：不再使用±std硬过滤，而是用连续评分函数
+   * 遗漏评分 = 回归倾向（偏离均值越远分数越高） + 条件概率加成 + 频率基线
+   */
+  generateOmissionBasedPrediction() {
+    const omission = this.calculateOmission();
+    const conditionalProb = this.calculateConditionalProbability(); // 新增
+    const correlation = this.calculateNumberCorrelation(); // 新增
+    const [frontCounter, backCounter] = this.analyzeFrequency();
+    const totalDraws = this.getActiveData().length;
+    
+    // 计算遗漏值的统计特征
+    const frontOmissionValues = Object.values(omission.front);
+    const backOmissionValues = Object.values(omission.back);
+    
+    const frontMean = frontOmissionValues.reduce((a, b) => a + b, 0) / frontOmissionValues.length;
+    const backMean = backOmissionValues.reduce((a, b) => a + b, 0) / backOmissionValues.length;
+    const frontStd = Math.sqrt(
+      frontOmissionValues.reduce((sum, val) => sum + Math.pow(val - frontMean, 2), 0) / frontOmissionValues.length
+    );
+    const backStd = Math.sqrt(
+      backOmissionValues.reduce((sum, val) => sum + Math.pow(val - backMean, 2), 0) / backOmissionValues.length
+    );
+    
+    // 前区：连续评分替代硬过滤
+    // 评分 = 遗漏回归倾向（连续函数，平滑过渡） + 条件概率加成 + 频率基线
+    const frontOmissionWeights = {};    
+    for (let i = 1; i <= CONFIG.FRONT_RANGE; i++) {
+      const currentOmission = omission.front[i] || 0;
+      // 连续回归评分：用sigmoid-like函数，遗漏值大于均值时分数高（回归倾向强）
+      // 偏离均值越远 → 回归倾向越强 → 权重越高
+      const deviation = (currentOmission - frontMean) / (frontStd || 1);
+      const regressionScore = 1 + deviation * 0.5; // 线性回归倾向（偏离1std增加0.5权重）
+      // 偏离2std以上的号码给予额外回归加成（极端遗漏即将回归）
+      const extremeBonus = Math.abs(deviation) > 2 ? Math.abs(deviation) * 0.3 : 0;
+      // 频率基线（避免纯遗漏导向，保持频率合理性）
+      const freqBaseline = (frontCounter[i] || 0) / (totalDraws || 1) * 3;
+      // 条件概率加成
+      const condBonus = (conditionalProb.front[i] || 0) * CONFIG.CONDITIONAL_WEIGHT * conditionalProb.confidence * 8;
+      // 号码关联性加分
+      const corrBonus = this.calculateCorrelationBonusForFront(i, correlation) * CONFIG.CORRELATION_WEIGHT;
+      frontOmissionWeights[i] = regressionScore + extremeBonus + freqBaseline + condBonus + corrBonus + 1; // +1基线
+    }
+    
+    // 后区：连续评分 + 条件概率融合
+    const backOmissionWeights = {};    
+    for (let i = 1; i <= CONFIG.BACK_RANGE; i++) {
+      const currentOmission = omission.back[i] || 0;
+      const deviation = (currentOmission - backMean) / (backStd || 1);
+      const regressionScore = 1 + deviation * 0.5;
+      const extremeBonus = Math.abs(deviation) > 2 ? Math.abs(deviation) * 0.3 : 0;
+      const freqBaseline = (backCounter[i] || 0) / (totalDraws || 1) * 3;
+      const condBonus = (conditionalProb.back[i] || 0) * CONFIG.BACK_CONDITIONAL_WEIGHT * conditionalProb.confidence * 8;
+      backOmissionWeights[i] = regressionScore + extremeBonus + freqBaseline + condBonus + 1;
+    }
+    
+    let front = this.smartFrontSample(frontOmissionWeights, CONFIG.FRONT_COUNT);
+    const back = this.smartBackSample(backOmissionWeights, 'omission');
+    
+    front.sort((a, b) => a - b);
+    back.sort((a, b) => a - b);
+    
+    front = this.enforceZoneCoverage(front, 4);
+    front.sort((a, b) => a - b);
+    
+    return [...front, ...back];
+  }
+
+  /**
+   * 时间衰减模型 v2 - 条件概率 + 关联性增强
+   * 核心改进：衰减权重 + 条件概率叠加 + 号码关联性加分
+   */
+  generateTimeDecayPrediction(decayFactor = CONFIG.TIME_DECAY_FACTOR) {
+    const weights = this.calculateTimeDecayWeights(decayFactor);
+    const conditionalProb = this.calculateConditionalProbability(); // 新增
+    const correlation = this.calculateNumberCorrelation(); // 新增
+    
+    // 前区：衰减权重 + 条件概率叠加 + 关联性加分
+    const frontEnhancedWeights = {};    
+    for (let i = 1; i <= CONFIG.FRONT_RANGE; i++) {
+      const decayWeight = (weights.front[i] || 0) + 1; // 衰减权重基线
+      const condBonus = (conditionalProb.front[i] || 0) * CONFIG.CONDITIONAL_WEIGHT * conditionalProb.confidence * 8;
+      const corrBonus = this.calculateCorrelationBonusForFront(i, correlation) * CONFIG.CORRELATION_WEIGHT;
+      frontEnhancedWeights[i] = decayWeight + condBonus + corrBonus;
+    }
+    
+    // 后区：衰减权重 + 条件概率叠加
+    const backEnhancedWeights = {};    
+    for (let i = 1; i <= CONFIG.BACK_RANGE; i++) {
+      const decayWeight = (weights.back[i] || 0) + 1;
+      const condBonus = (conditionalProb.back[i] || 0) * CONFIG.BACK_CONDITIONAL_WEIGHT * conditionalProb.confidence * 8;
+      backEnhancedWeights[i] = decayWeight + condBonus;
+    }
+    
+    let front = this.smartFrontSample(frontEnhancedWeights, CONFIG.FRONT_COUNT);
+    const back = this.smartBackSample(backEnhancedWeights, 'time_decay');
+    
+    front.sort((a, b) => a - b);
+    back.sort((a, b) => a - b);
+    
+    front = this.enforceZoneCoverage(front, 4);
+    front.sort((a, b) => a - b);
+    
+    return [...front, ...back];
+  }
+
+  /**
+   * 周易时空预测模型（优化版 v3 - 条件概率+关联性增强）
    * 基于用户点击生成的实际时间，结合周易卦象和开奖周期
-   * 开奖时间：周一、周三、周六
-   * 优化：增加卦象组合的多样性，改进后区选择策略
+   * 核心改进：卦象池权重融合条件概率 + 关联性优先选号
    */
   generateZhouyiPrediction(iteration = 0) {
     const now = new Date();
+    const conditionalProb = this.calculateConditionalProbability(); // 新增
+    const correlation = this.calculateNumberCorrelation(); // 新增
     
     // 获取时间要素（用于卦象计算）
     const year = now.getFullYear();
@@ -482,19 +628,16 @@ class LotteryAnalyzer {
     const day = now.getDate();
     const hour = now.getHours();
     const minute = now.getMinutes();
-    const second = now.getSeconds(); // 新增秒数，增加随机性
-    const weekday = now.getDay(); // 0=周日, 1=周一, ..., 6=周六
+    const second = now.getSeconds();
+    const weekday = now.getDay();
     
     // 计算距离下次开奖的天数
-    // 开奖日：周一(1)、周三(3)、周六(6)
     const drawDays = [1, 3, 6];
     let daysToNextDraw = 0;
     for (const drawDay of drawDays) {
       let diff = drawDay - weekday;
       if (diff < 0) diff += 7;
-      if (diff === 0 && hour >= 20) { // 假设晚上8点后算第二天
-        diff = 7;
-      }
+      if (diff === 0 && hour >= 20) diff = 7;
       if (diff > 0) {
         daysToNextDraw = diff;
         break;
@@ -502,26 +645,19 @@ class LotteryAnalyzer {
     }
     if (daysToNextDraw === 0) daysToNextDraw = 7;
     
-    // 上卦：年+月+日+iteration 除以8的余数（加入iteration增加多样性）
     const upperTrigram = (year + month + day + iteration) % 8;
-    
-    // 下卦：年+月+日+时+分 除以8的余数
     const lowerTrigram = (year + month + day + hour + minute) % 8;
-    
-    // 动爻：年+月+日+时+分+秒+距开奖天数 除以6的余数（加入秒数）
     const movingLine = (year + month + day + hour + minute + second + daysToNextDraw) % 6;
     
-    // 八卦对应的号码池（根据先天八卦数，优化分布）
-    // 乾1、兑2、离3、震4、巽5、坎6、艮7、坤8
     const trigramElements = {
-      0: [1, 8, 15, 22, 29],      // 坤卦：大地之数（均匀分布）
-      1: [2, 9, 16, 23, 30],      // 乾卦：天行之数
-      2: [3, 10, 17, 24, 31],     // 兑卦：泽润之数
-      3: [4, 11, 18, 25, 32],     // 离卦：火明之数
-      4: [5, 12, 19, 26, 33],     // 震卦：雷动之数
-      5: [6, 13, 20, 27, 34],     // 巽卦：风入之数
-      6: [7, 14, 21, 28, 35],     // 坎卦：水润之数
-      7: [1, 9, 17, 25, 33]       // 艮卦：山止之数（与坤卦呼应）
+      0: [1, 8, 15, 22, 29],
+      1: [2, 9, 16, 23, 30],
+      2: [3, 10, 17, 24, 31],
+      3: [4, 11, 18, 25, 32],
+      4: [5, 12, 19, 26, 33],
+      5: [6, 13, 20, 27, 34],
+      6: [7, 14, 21, 28, 35],
+      7: [1, 9, 17, 25, 33]
     };
     
     // 根据上卦和下卦组合选号
@@ -547,27 +683,24 @@ class LotteryAnalyzer {
       combinedPool.push(...movingLineNumbers);
     }
     
-    // 从组合池中选取前区号码（使用加权采样，优先选择历史频率较高的号码）
-    const [frontCounter] = this.analyzeFrequency();
-    const poolWithWeights = combinedPool.map(num => ({
-      num,
-      weight: (frontCounter[num] || 0) + 1 // 基础权重+1避免为0
-    }));
-    
-    const nums = poolWithWeights.map(x => x.num);
-    const weights = poolWithWeights.map(x => x.weight);
-    let front = this.weightedSampleNoReplacement(nums, weights, CONFIG.FRONT_COUNT);
-    
-    // 如果仍然不足，用随机号码补充
-    if (front.length < CONFIG.FRONT_COUNT) {
-      const remaining = this.frontNumbers.filter(n => !front.includes(n));
-      front = [...front, ...this.randomSample(remaining, CONFIG.FRONT_COUNT - front.length)];
+    // 从组合池中选取前区号码（使用smartFrontSample替代weightedSampleNoReplacement）
+    // smartFrontSample已内置条件概率和关联性感知，自动提升模型准确性
+    // 构建卦象池权重：频率 + 条件概率 + 关联性
+    const [frontCounter, backCounter] = this.analyzeFrequency();
+    const zhouyiFrontWeights = {};    
+    for (let i = 1; i <= CONFIG.FRONT_RANGE; i++) {
+      const isInPool = combinedPool.includes(i);
+      const freqWeight = isInPool ? ((frontCounter[i] || 0) + 1) * 2 : 1; // 池内号码权重加倍
+      const condBonus = (conditionalProb.front[i] || 0) * CONFIG.CONDITIONAL_WEIGHT * conditionalProb.confidence * 8;
+      const corrBonus = this.calculateCorrelationBonusForFront(i, correlation) * CONFIG.CORRELATION_WEIGHT;
+      // 条件概率高的号码即使不在卦象池中也有机会（周易+科学的融合）
+      const scienceBonus = isInPool ? 0 : (conditionalProb.front[i] || 0) * CONFIG.CONDITIONAL_WEIGHT * conditionalProb.confidence * 3;
+      zhouyiFrontWeights[i] = freqWeight + condBonus + corrBonus + scienceBonus;
     }
     
-    // 后区号码优化：结合时辰、动爻和历史频率
-    const [_, backCounter] = this.analyzeFrequency();
+    let front = this.smartFrontSample(zhouyiFrontWeights, CONFIG.FRONT_COUNT);
     
-    // 十二时辰对应后区号码（扩展候选池）
+    // 后区号码优化 v3：时辰候选 + 条件概率 + 关联性融合
     const hourBackMap = {
       0: [1, 6, 7, 12],   // 子时
       1: [1, 6, 7, 12],   // 子时
@@ -595,39 +728,47 @@ class LotteryAnalyzer {
       23: [3, 6, 9, 12]   // 亥时
     };
     
+    // 后区：时辰候选 + 条件概率融合
     const backCandidates = hourBackMap[hour] || [1, 6, 7, 12];
+    const expandedBackWeights = {};    
+    for (let i = 1; i <= CONFIG.BACK_RANGE; i++) {
+      const isTimeCandidate = backCandidates.includes(i);
+      // 时辰候选号码：高权重 + 频率 + 条件概率
+      const timeWeight = isTimeCandidate ? 2.0 : 0.5; // 时辰号码权重加倍
+      const freqWeight = (backCounter[i] || 0) + 1;
+      const condWeight = (conditionalProb.back[i] || 0) * CONFIG.BACK_CONDITIONAL_WEIGHT * conditionalProb.confidence * 8;
+      expandedBackWeights[i] = timeWeight * freqWeight + condWeight;
+    }
     
-    // 根据动爻和后区历史频率选择
-    const backWithWeights = backCandidates.map(num => ({
-      num,
-      weight: (backCounter[num] || 0) + 1
-    }));
-    
-    const backNums = backWithWeights.map(x => x.num);
-    const backWeights = backWithWeights.map(x => x.weight);
-    const back = this.weightedSampleNoReplacement(backNums, backWeights, CONFIG.BACK_COUNT);
+    const back = this.smartBackSample(expandedBackWeights, 'zhouyi');
     
     front.sort((a, b) => a - b);
     back.sort((a, b) => a - b);
+    
+    front = this.enforceZoneCoverage(front, 4);
+    front.sort((a, b) => a - b);
+    
     return [...front, ...back];
   }
 
   /**
-   * 贝叶斯动态预测模型（优化版 v3）
+   * 贝叶斯动态预测模型（优化版 v4 - 8维评分+条件概率）
    * 基于历史数据计算条件概率，动态调整预测权重
-   * 性能优化：使用向量化计算，避免三层嵌套循环
-   * 优化：增加遗漏值因子、区间平衡因子、趋势分析、重号策略
+   * 新增：条件概率（马尔可夫转移）、号码关联性
+   * 权重重平衡：先验15% + 时间12% + 趋势12% + 遗漏15% + 条件概率15% + 区间5% + 重号8% + 和值8%
    */
   generateBayesianPrediction() {
     const [frontCounter, backCounter] = this.analyzeFrequency();
     const omission = this.calculateOmission();
     const sumTrend = this.analyzeSumTrend();
     const repeatAnalysis = this.analyzeRepeatNumbers();
-    const totalDraws = this.historyData.length;
+    const conditionalProb = this.calculateConditionalProbability(); // 新增
+    const activeData = this.getActiveData();
+    const totalDraws = activeData.length;
     
     if (totalDraws === 0) {
       // 如果没有历史数据，返回随机号码
-      const front = this.randomSample(this.frontNumbers, CONFIG.FRONT_COUNT);
+      let front = this.randomSample(this.frontNumbers, CONFIG.FRONT_COUNT);
       const back = this.randomSample(this.backNumbers, CONFIG.BACK_COUNT);
       front.sort((a, b) => a - b);
       back.sort((a, b) => a - b);
@@ -655,76 +796,108 @@ class LotteryAnalyzer {
     const backAvgOmission = backOmissionValues.reduce((a, b) => a + b, 0) / backOmissionValues.length;
     
     // 获取上期开奖号码（用于重号分析）
-    const lastDraw = this.historyData.length > 0 ? this.historyData[this.historyData.length - 1] : null;
+    // 上期开奖号码始终用全数据的最新期（不受窗口限制）
+        const lastDraw = this.historyData.length > 0 ? this.historyData[this.historyData.length - 1] : null;
     
-    // 前区后验概率计算
+    // 1. 预计算时间加权得分（优化：从O(n²)降到O(n)，一次循环计算所有号码的时间得分）
+    const frontTimeScores = {};
+    const backTimeScores = {};
+    for (let i = 1; i <= CONFIG.FRONT_RANGE; i++) frontTimeScores[i] = 0;
+    for (let i = 1; i <= CONFIG.BACK_RANGE; i++) backTimeScores[i] = 0;
+    
+    // 使用窗口数据进行时间加权
+    const timeData = this.getActiveData();
+    for (let idx = 0; idx < timeData.length; idx++) {
+      const draw = timeData[idx];
+      const timeWeight = Math.exp((idx - timeData.length + 1) / timeData.length) * 0.2;
+      for (const num of draw.front) frontTimeScores[num] += timeWeight;
+      for (const num of draw.back) backTimeScores[num] += timeWeight;
+    }
+    
+    // 2. 近期频率趋势（新增 - 优化贝叶斯动态性）
+    // 计算最近15期的频率，与总频率对比
+    const recentCount = Math.min(CONFIG.RECENT_DRAWS_FOR_TREND, timeData.length);
+    const recentFrontFreq = {};
+    const recentBackFreq = {};
+    for (let i = 1; i <= CONFIG.FRONT_RANGE; i++) recentFrontFreq[i] = 0;
+    for (let i = 1; i <= CONFIG.BACK_RANGE; i++) recentBackFreq[i] = 0;
+    
+    const recentDraws = timeData.slice(-recentCount);
+    for (const draw of recentDraws) {
+      for (const num of draw.front) recentFrontFreq[num]++;
+      for (const num of draw.back) recentBackFreq[num]++;
+    }
+    
+    // 前区后验概率计算（优化版 - 8维评分，新增条件概率）
     for (let i = 1; i <= CONFIG.FRONT_RANGE; i++) {
-      let score = priorFront[i] * 0.35; // 进一步降低先验权重
+      let score = priorFront[i] * 0.15; // 先验权重降低到15%
       
-      // 时间加权：近期数据权重更高
-      let timeScore = 0;
-      for (let idx = 0; idx < this.historyData.length; idx++) {
-        const draw = this.historyData[idx];
-        if (draw.front.includes(i)) {
-          const timeWeight = Math.exp((idx - this.historyData.length + 1) / this.historyData.length);
-          timeScore += timeWeight * 0.2;
-        }
-      }
-      score += timeScore;
+      // 时间加权：使用预计算替代逐号码循环
+      score += (frontTimeScores[i] || 0) * 0.12;
       
-      // 遗漏值因子：接近平均遗漏值的号码得分更高（均值回归理论）
+      // 近期频率趋势
+      const recentRate = recentFrontFreq[i] / recentCount;
+      const overallRate = (frontCounter[i] || 0) / totalDraws;
+      const trendMomentum = recentRate - overallRate; // 上升动量
+      score += trendMomentum * 0.12;
+      
+      // 条件概率（马尔可夫转移）（新增 - 核心准确性提升）
+      score += (conditionalProb.front[i] || 0) * CONFIG.CONDITIONAL_WEIGHT * conditionalProb.confidence;
+      
+      // 遗漏值因子：接近平均遗漏值的号码得分更高
       const currentOmission = omission.front[i] || 0;
       const omissionDiff = Math.abs(currentOmission - frontAvgOmission);
       const omissionFactor = Math.max(0, 1 - omissionDiff / (frontAvgOmission * 2));
-      score += omissionFactor * 0.25;
+      score += omissionFactor * 0.15;
       
-      // 区间平衡因子：确保号码分布均匀
-      const zoneIndex = Math.floor((i - 1) / 5); // 7个区间
-      const zoneBonus = (zoneIndex % 2 === 0) ? 0.05 : 0; // 交替加分
+      // 区间平衡因子
+      const zoneIndex = Math.floor((i - 1) / 5);
+      const zoneBonus = (zoneIndex % 2 === 0) ? 0.05 : 0;
       score += zoneBonus;
       
-      // 重号因子：上期出现的号码给予额外权重
+      // 重号因子
       if (lastDraw && lastDraw.front.includes(i)) {
-        score += repeatAnalysis.frontRepeatRate * 0.15; // 根据重号率调整
+        score += repeatAnalysis.frontRepeatRate * 0.08;
       }
       
-      // 和值趋势因子：如果和值呈上升趋势，偏向大号
+      // 和值趋势因子
       if (sumTrend.trendFront > 5 && i > 18) {
-        score += 0.05; // 上升趋势，大号加分
+        score += 0.04;
       } else if (sumTrend.trendFront < -5 && i <= 18) {
-        score += 0.05; // 下降趋势，小号加分
+        score += 0.04;
       }
       
       posteriorFront[i] = score;
     }
     
-    // 后区后验概率计算
+    // 后区后验概率计算（优化版 - 加入条件概率）
     for (let i = 1; i <= CONFIG.BACK_RANGE; i++) {
-      let score = priorBack[i] * 0.35;
+      let score = priorBack[i] * 0.15;
       
-      let timeScore = 0;
-      for (let idx = 0; idx < this.historyData.length; idx++) {
-        const draw = this.historyData[idx];
-        if (draw.back.includes(i)) {
-          const timeWeight = Math.exp((idx - this.historyData.length + 1) / this.historyData.length);
-          timeScore += timeWeight * 0.2;
-        }
-      }
-      score += timeScore;
+      score += (backTimeScores[i] || 0) * 0.12;
+      
+      // 近期频率趋势
+      const recentRate = recentBackFreq[i] / recentCount;
+      const overallRate = (backCounter[i] || 0) / totalDraws;
+      const trendMomentum = recentRate - overallRate;
+      score += trendMomentum * 0.12;
+      
+      // 条件概率（马尔可夫转移）（新增 - 核心准确性提升）
+      score += (conditionalProb.back[i] || 0) * CONFIG.BACK_CONDITIONAL_WEIGHT * conditionalProb.confidence;
       
       // 遗漏值因子
       const currentOmission = omission.back[i] || 0;
       const omissionDiff = Math.abs(currentOmission - backAvgOmission);
       const omissionFactor = Math.max(0, 1 - omissionDiff / (backAvgOmission * 2));
-      score += omissionFactor * 0.25;
+      score += omissionFactor * 0.20;
       
       // 奇偶平衡因子
-      const oddEvenBonus = (i % 2 === 1) ? 0.05 : 0; // 奇数稍加分
+      const oddEvenBonus = (i % 2 === 1) ? 0.05 : 0;
       score += oddEvenBonus;
       
-      // 重号因子（后区重号率通常较高）
+      // 重号因子
       if (lastDraw && lastDraw.back.includes(i)) {
-        score += repeatAnalysis.backRepeatRate * 0.2; // 后区重号加成更高
+        score += repeatAnalysis.backRepeatRate * 0.08;
       }
       
       posteriorBack[i] = score;
@@ -736,27 +909,42 @@ class LotteryAnalyzer {
       .slice(0, CONFIG.BAYESIAN_CANDIDATE_FRONT)
       .map(x => Number(x[0]));
     
-    const sortedBack = Object.entries(posteriorBack)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, CONFIG.BAYESIAN_CANDIDATE_BACK)
-      .map(x => Number(x[0]));
+    // 使用智能采样替代纯随机选择，增加多样性
+    // 前区：从候选池中智能采样
+    const frontCandidateWeights = {};    
+    for (let i = 1; i <= CONFIG.FRONT_RANGE; i++) {
+      const isCandidate = sortedFront.includes(i);
+      frontCandidateWeights[i] = isCandidate ? (posteriorFront[i] || 0) + 0.5 : (posteriorFront[i] || 0) + CONFIG.FRONT_RANDOM_BONUS;
+    }
+    let front = this.smartFrontSample(frontCandidateWeights, CONFIG.FRONT_COUNT);
     
-    const front = this.randomSample(sortedFront, CONFIG.FRONT_COUNT);
-    const back = this.randomSample(sortedBack, CONFIG.BACK_COUNT);
+    // 后区：使用后验概率作为权重基础，智能采样
+    const backCandidateWeights = {};    
+    for (let i = 1; i <= CONFIG.BACK_RANGE; i++) {
+      // 直接使用后验概率作为权重，无需sortedBack中间变量
+      backCandidateWeights[i] = (posteriorBack[i] || 0) + CONFIG.BACK_RANDOM_BONUS;
+    }
+    const back = this.smartBackSample(backCandidateWeights, 'bayesian');
     
     front.sort((a, b) => a - b);
     back.sort((a, b) => a - b);
+    
+    front = this.enforceZoneCoverage(front, 4);
+    front.sort((a, b) => a - b);
+    
     return [...front, ...back];
   }
 
   /**
-   * 旋转矩阵优化模型（优化版 v2）
+   * 旋转矩阵优化模型（优化版 v3 - 加权采样+条件概率融合）
    * 使用组合数学方法生成覆盖度最优的号码组合
-   * 优化：增加更多策略，提高多样性
+   * 核心改进：5策略全部用加权采样替代纯随机，融入条件概率
    */
   generateRotationMatrixPrediction(groups = 1) {
     const [frontCounter, backCounter] = this.analyzeFrequency();
     const omission = this.calculateOmission();
+    const conditionalProb = this.calculateConditionalProbability(); // 新增
+    const correlation = this.calculateNumberCorrelation(); // 新增
     
     // 根据频率排序，选择高频号码作为基础池
     const sortedFrontNums = Object.entries(frontCounter)
@@ -773,7 +961,7 @@ class LotteryAnalyzer {
     const lowFreqFront = Object.entries(frontCounter)
       .filter(([_, count]) => count === 0 || count <= 2)
       .map(x => Number(x[0]))
-      .slice(0, 8); // 增加到8个
+      .slice(0, 8);
     
     // 添加遗漏值较大的号码
     const highOmissionFront = Object.entries(omission.front)
@@ -784,48 +972,128 @@ class LotteryAnalyzer {
     const allFrontPool = [...new Set([...sortedFrontNums, ...lowFreqFront, ...highOmissionFront])];
     const allBackPool = [...new Set([...sortedBackNums])];
     
+    // 辅助方法：为指定号码池构建加权权重（频率+条件概率+关联性）
+    const buildStrategyWeights = (pool, isFront) => {
+      const weights = {};      
+      for (const num of pool) {
+        const freq = (isFront ? frontCounter[num] : backCounter[num]) || 0;
+        const cond = isFront
+          ? (conditionalProb.front[num] || 0) * CONFIG.CONDITIONAL_WEIGHT * conditionalProb.confidence * 8
+          : (conditionalProb.back[num] || 0) * CONFIG.BACK_CONDITIONAL_WEIGHT * conditionalProb.confidence * 8;
+        const corr = isFront
+          ? this.calculateCorrelationBonusForFront(num, correlation) * CONFIG.CORRELATION_WEIGHT
+          : 0;
+        weights[num] = freq + 1 + cond + corr; // +1基线
+      }
+      // 确保池外号码也能被smartFrontSample考虑
+      return weights;
+    };
+    
     const results = [];
     
     for (let g = 0; g < groups; g++) {
       let front;
       
-      // 5种不同的旋转策略
+      // 5种不同的旋转策略 - 全部改为加权采样
       if (g % 5 === 0) {
-        // 策略1：主要高频号
-        front = this.randomSample(sortedFrontNums, CONFIG.FRONT_COUNT);
+        // 策略1：主要高频号（频率加权采样）
+        const weights = buildStrategyWeights(sortedFrontNums, true);
+        // 扩展为全35个号码的权重字典，让smartFrontSample处理
+        const fullWeights = {};        
+        for (let i = 1; i <= CONFIG.FRONT_RANGE; i++) {
+          fullWeights[i] = sortedFrontNums.includes(i)
+            ? (weights[i] || 0) * 2 // 高频号码加倍权重
+            : CONFIG.FRONT_RANDOM_BONUS; // 其他号码基础权重
+        }
+        front = this.smartFrontSample(fullWeights, CONFIG.FRONT_COUNT);
       } else if (g % 5 === 1) {
-        // 策略2：混合高频和中频
+        // 策略2：混合高频和中频（频率+条件概率加权）
         const midFreq = allFrontPool.filter(n => !sortedFrontNums.includes(n)).slice(0, 12);
-        const mixed = [...sortedFrontNums.slice(0, 10), ...midFreq];
-        front = this.randomSample(mixed, CONFIG.FRONT_COUNT);
+        const mixedPool = [...sortedFrontNums.slice(0, 10), ...midFreq];
+        const weights = buildStrategyWeights(mixedPool, true);
+        const fullWeights = {};        
+        for (let i = 1; i <= CONFIG.FRONT_RANGE; i++) {
+          fullWeights[i] = mixedPool.includes(i)
+            ? (weights[i] || 0) * 1.5
+            : CONFIG.FRONT_RANDOM_BONUS;
+        }
+        front = this.smartFrontSample(fullWeights, CONFIG.FRONT_COUNT);
       } else if (g % 5 === 2) {
-        // 策略3：包含冷门号
+        // 策略3：包含冷门号（遗漏加权+条件概率）
         const withCold = [...sortedFrontNums.slice(0, 10), ...lowFreqFront.slice(0, 5)];
-        front = this.randomSample(withCold, CONFIG.FRONT_COUNT);
+        const weights = buildStrategyWeights(withCold, true);
+        const fullWeights = {};        
+        for (let i = 1; i <= CONFIG.FRONT_RANGE; i++) {
+          fullWeights[i] = withCold.includes(i)
+            ? (weights[i] || 0)
+            : CONFIG.FRONT_RANDOM_BONUS;
+        }
+        // 给冷门号额外加成（遗漏回归倾向）
+        for (const num of lowFreqFront.slice(0, 5)) {
+          if (num <= CONFIG.FRONT_RANGE) {
+            const omissionVal = omission.front[num] || 0;
+            fullWeights[num] = (fullWeights[num] || 0) + omissionVal * 0.3;
+          }
+        }
+        front = this.smartFrontSample(fullWeights, CONFIG.FRONT_COUNT);
       } else if (g % 5 === 3) {
-        // 策略4：遗漏值回归策略
+        // 策略4：遗漏值回归策略（遗漏加权+条件概率）
         const withOmission = [...highOmissionFront.slice(0, 3), ...sortedFrontNums.slice(0, 12)];
-        front = this.randomSample(withOmission, CONFIG.FRONT_COUNT);
+        const weights = buildStrategyWeights(withOmission, true);
+        const fullWeights = {};        
+        for (let i = 1; i <= CONFIG.FRONT_RANGE; i++) {
+          fullWeights[i] = withOmission.includes(i)
+            ? (weights[i] || 0)
+            : CONFIG.FRONT_RANDOM_BONUS;
+        }
+        // 遗漏号码额外回归加权
+        for (const num of highOmissionFront.slice(0, 3)) {
+          if (num <= CONFIG.FRONT_RANGE) {
+            const omissionVal = omission.front[num] || 0;
+            fullWeights[num] = (fullWeights[num] || 0) + omissionVal * 0.5; // 强回归倾向
+          }
+        }
+        front = this.smartFrontSample(fullWeights, CONFIG.FRONT_COUNT);
       } else {
-        // 策略5：全池随机（增加探索性）
-        front = this.randomSample(allFrontPool, CONFIG.FRONT_COUNT);
+        // 策略5：全池探索（条件概率引导的全池加权）
+        const weights = buildStrategyWeights(allFrontPool, true);
+        const fullWeights = {};        
+        for (let i = 1; i <= CONFIG.FRONT_RANGE; i++) {
+          fullWeights[i] = allFrontPool.includes(i)
+            ? (weights[i] || 0)
+            : (conditionalProb.front[i] || 0) * CONFIG.CONDITIONAL_WEIGHT * conditionalProb.confidence * 5 + CONFIG.FRONT_RANDOM_BONUS;
+        }
+        front = this.smartFrontSample(fullWeights, CONFIG.FRONT_COUNT);
       }
       
-      // 后区也采用不同策略
+      // 后区：全部使用smartBackSample（已内置条件概率）
       let back;
       if (g % 3 === 0) {
-        back = this.randomSample(sortedBackNums, CONFIG.BACK_COUNT);
+        // 策略1：频率+条件概率智能采样
+        const backFreqWeights = {};        
+        for (let i = 1; i <= CONFIG.BACK_RANGE; i++) {
+          const freq = (backCounter[i] || 0) + 1;
+          const cond = (conditionalProb.back[i] || 0) * CONFIG.BACK_CONDITIONAL_WEIGHT * conditionalProb.confidence * 8;
+          backFreqWeights[i] = freq + cond;
+        }
+        back = this.smartBackSample(backFreqWeights, 'rotation');
       } else if (g % 3 === 1) {
-        // 混合高低频
-        const allBackExpanded = [...sortedBackNums, ...this.backNumbers.filter(n => !sortedBackNums.includes(n)).slice(0, 4)];
-        back = this.randomSample(allBackExpanded, CONFIG.BACK_COUNT);
+        // 策略2：遗漏值+条件概率智能采样
+        const backOmissionWeights = {};        
+        for (let i = 1; i <= CONFIG.BACK_RANGE; i++) {
+          const omissionVal = (omission.back[i] || 0) + 1;
+          const cond = (conditionalProb.back[i] || 0) * CONFIG.BACK_CONDITIONAL_WEIGHT * conditionalProb.confidence * 8;
+          backOmissionWeights[i] = omissionVal + cond;
+        }
+        back = this.smartBackSample(backOmissionWeights, 'rotation');
       } else {
-        // 基于遗漏值
-        const backByOmission = Object.entries(omission.back)
-          .sort((a, b) => b[1] - a[1])
-          .slice(0, 6)
-          .map(x => Number(x[0]));
-        back = this.randomSample(backByOmission, CONFIG.BACK_COUNT);
+        // 策略3：条件概率引导采样（主要靠条件概率）
+        const backCondWeights = {};        
+        for (let i = 1; i <= CONFIG.BACK_RANGE; i++) {
+          const cond = (conditionalProb.back[i] || 0) * CONFIG.BACK_CONDITIONAL_WEIGHT * conditionalProb.confidence * 10;
+          backCondWeights[i] = cond + CONFIG.BACK_RANDOM_BONUS + 1;
+        }
+        back = this.smartBackSample(backCondWeights, 'rotation');
       }
       
       front.sort((a, b) => a - b);
@@ -837,10 +1105,9 @@ class LotteryAnalyzer {
   }
 
   /**
-   * 混合预测模型（优化版 v4）
+   * 混合预测模型（优化版 v6 - 修复硬编码后区+增强评分）
    * 结合周易、贝叶斯和旋转矩阵的优势
-   * 科学性：基于多模型投票机制，提高稳定性
-   * 优化：加入趋势分析、重号策略、智能权重调整、AC值、连号等特征
+   * 核心改进：修复evaluateCombination硬编码[1,2]后区，用条件概率最优后区替代
    */
   generateHybridPrediction() {
     // 获取新增的分析数据
@@ -848,7 +1115,9 @@ class LotteryAnalyzer {
     const spanAnalysis = this.analyzeSpan();
     const repeatAnalysis = this.analyzeRepeatNumbers();
     const modelWeights = this.evaluateModelPerformance();
-    const zoneRotation = this.analyzeZoneRotation(); // 区间轮动分析
+    const zoneRotation = this.analyzeZoneRotation();
+    const conditionalProb = this.calculateConditionalProbability();
+    const correlation = this.calculateNumberCorrelation();
     
     // 生成三个模型的预测结果
     const zhouyi = this.generateZhouyiPrediction();
@@ -861,16 +1130,20 @@ class LotteryAnalyzer {
     const bayesianFront = bayesian.slice(0, 5);
     const rotationFront = rotation.front;
     
-    // 加权投票机制
+    // 加权投票机制（优化：增加条件概率额外加成）
     const voteCount = {};
     zhouyiFront.forEach(num => {
       voteCount[num] = (voteCount[num] || 0) + modelWeights.zhouyi;
+      // 条件概率加成：马尔可夫转移倾向高的号码额外加分
+      voteCount[num] += (conditionalProb.front[num] || 0) * CONFIG.CONDITIONAL_WEIGHT * conditionalProb.confidence * 3;
     });
     bayesianFront.forEach(num => {
       voteCount[num] = (voteCount[num] || 0) + modelWeights.bayesian;
+      voteCount[num] += (conditionalProb.front[num] || 0) * CONFIG.CONDITIONAL_WEIGHT * conditionalProb.confidence * 3;
     });
     rotationFront.forEach(num => {
       voteCount[num] = (voteCount[num] || 0) + modelWeights.rotation;
+      voteCount[num] += (conditionalProb.front[num] || 0) * CONFIG.CONDITIONAL_WEIGHT * conditionalProb.confidence * 3;
     });
     
     // 按票数排序，票数相同则随机打乱
@@ -890,47 +1163,63 @@ class LotteryAnalyzer {
       candidates.push(...remaining.slice(0, CONFIG.FRONT_COUNT - candidates.length));
     }
     
-    // 从候选中选择前区号码，并进行质量评估（增加尝试次数）
+    // 从候选中选择前区号码，使用加权采样+质量评估（优化版）
     let bestFront = null;
     let bestScore = -Infinity;
     
-    for (let i = 0; i < 200; i++) { // 增加到200次尝试（数据充足）
-      const selected = this.randomSample(candidates, CONFIG.FRONT_COUNT);
+    // 优化1：先从候选中用加权采样（票数高优先）
+    const candidateWeights = candidates.map(num => voteCount[num] || 1);
+    
+    for (let i = 0; i < 150; i++) { // 150次尝试
+      // 使用加权采样替代纯随机，50%用加权，50%用随机
+      let selected;
+      if (i < 75) {
+        selected = this.weightedSampleNoReplacement(candidates, candidateWeights, CONFIG.FRONT_COUNT);
+      } else {
+        selected = this.randomSample(candidates, CONFIG.FRONT_COUNT);
+      }
       
-      // 检查是否符合跨度要求（放宽阈值）
+      // 检查是否符合跨度要求
       const span = Math.max(...selected) - Math.min(...selected);
       const spanDiff = Math.abs(span - spanAnalysis.avgFrontSpan);
-      if (spanDiff > CONFIG.SPAN_DIFF_THRESHOLD) continue;
+      if (spanDiff > CONFIG.SPAN_DIFF_THRESHOLD * 1.2) continue; // 稍微放宽
       
-      // 检查和值要求（放宽阈值）
+      // 检查和值要求
       const sum = selected.reduce((a, b) => a + b, 0);
       const sumDiff = Math.abs(sum - sumTrend.avgFrontSum);
-      if (sumDiff > CONFIG.SUM_DIFF_THRESHOLD) continue;
+      if (sumDiff > CONFIG.SUM_DIFF_THRESHOLD * 1.2) continue;
       
-      // 检查AC值（基于208期数据：93.3%在4-7之间）
+      // 检查AC值
       const acValue = this.calculateACValue(selected);
       if (acValue < CONFIG.AC_VALUE_MIN || acValue > CONFIG.AC_VALUE_MAX) continue;
       
-      // 检查连号合理性（允许1-2组连号，49%的期数有连号）
+      // 检查连号合理性
       const consecutiveGroups = this.analyzeConsecutiveNumbers(selected);
       if (consecutiveGroups.length > CONFIG.CONSECUTIVE_GROUPS_MAX) continue;
       
-      const score = this.evaluateCombination(selected, [1, 2]); // 临时后区
+      // 区间覆盖检查（新增）
+      const zones = new Set(selected.map(n => Math.floor((n - 1) / 5)));
+      if (zones.size < 3) continue; // 覆盖不足3个区间，跳过
+      
+      // 计算条件概率最优后区号码（替代硬编码[1,2]）
+      const probableBack = Object.entries(conditionalProb.back)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, CONFIG.BACK_COUNT)
+        .map(x => Number(x[0]))
+        .sort((a, b) => a - b);
+      const score = this.evaluateCombination(selected, probableBack);
       
       if (score > bestScore) {
         bestScore = score;
         bestFront = selected;
       }
       
-      // 如果找到高质量组合，提前退出
-      if (score >= CONFIG.QUALITY_SCORE_THRESHOLD) {
-        break;
-      }
+      if (score >= CONFIG.QUALITY_SCORE_THRESHOLD) break;
     }
     
-    const front = bestFront || this.randomSample(candidates, CONFIG.FRONT_COUNT);
+    let front = bestFront || this.randomSample(candidates, CONFIG.FRONT_COUNT);
     
-    // 后区：使用投票机制 + 重号策略
+    // 后区：使用投票机制 + 重号策略 + 条件概率
     const zhouyiBack = zhouyi.slice(5);
     const bayesianBack = bayesian.slice(5);
     const rotationBack = rotation.back;
@@ -938,12 +1227,15 @@ class LotteryAnalyzer {
     const backVoteCount = {};
     zhouyiBack.forEach(num => {
       backVoteCount[num] = (backVoteCount[num] || 0) + modelWeights.zhouyi;
+      backVoteCount[num] += (conditionalProb.back[num] || 0) * CONFIG.BACK_CONDITIONAL_WEIGHT * conditionalProb.confidence * 3;
     });
     bayesianBack.forEach(num => {
       backVoteCount[num] = (backVoteCount[num] || 0) + modelWeights.bayesian;
+      backVoteCount[num] += (conditionalProb.back[num] || 0) * CONFIG.BACK_CONDITIONAL_WEIGHT * conditionalProb.confidence * 3;
     });
     rotationBack.forEach(num => {
       backVoteCount[num] = (backVoteCount[num] || 0) + modelWeights.rotation;
+      backVoteCount[num] += (conditionalProb.back[num] || 0) * CONFIG.BACK_CONDITIONAL_WEIGHT * conditionalProb.confidence * 3;
     });
     
     // 如果有上期开奖数据，考虑重号策略
@@ -957,20 +1249,16 @@ class LotteryAnalyzer {
       });
     }
     
-    const backCandidates = Object.entries(backVoteCount)
-      .sort((a, b) => b[1] - a[1])
-      .map(x => Number(x[0]));
-    
-    // 如果候选不足，补充
-    if (backCandidates.length < CONFIG.BACK_COUNT) {
-      const [_, backCounter] = this.analyzeFrequency();
-      const remaining = this.backNumbers
-        .filter(n => !backCandidates.includes(n))
-        .sort((a, b) => (backCounter[b] || 0) - (backCounter[a] || 0));
-      backCandidates.push(...remaining.slice(0, CONFIG.BACK_COUNT - backCandidates.length));
+    // 后区：使用智能采样替代投票截取，增加多样性
+    const backCandidateWeights = {};    
+    // 将投票分数作为权重基础
+    for (let i = 1; i <= CONFIG.BACK_RANGE; i++) {
+      const voteScore = backVoteCount[i] || 0;
+      // 候选号码保留投票权重，其他号码给予基础权重
+      backCandidateWeights[i] = voteScore > 0 ? voteScore + 0.3 : CONFIG.BACK_RANDOM_BONUS;
     }
     
-    const back = backCandidates.slice(0, CONFIG.BACK_COUNT);
+    const back = this.smartBackSample(backCandidateWeights, 'hybrid');
     
     front.sort((a, b) => a - b);
     back.sort((a, b) => a - b);
@@ -1020,15 +1308,760 @@ class LotteryAnalyzer {
     return selected;
   }
 
+  /**
+   * Fisher-Yates均匀随机采样（修复偏向性bug）
+   * 原来的 sort(() => 0.5 - Math.random()) 不是均匀分布
+   * Fisher-Yates shuffle 保证每个排列等概率出现
+   */
   randomSample(arr, k) {
-    const shuffled = [...arr].sort(() => 0.5 - Math.random());
+    const shuffled = [...arr];
+    for (let i = shuffled.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    }
     return shuffled.slice(0, k);
   }
 
   /**
-   * 评估号码组合的质量（优化版 v4）
+   * 后区智能采样（优化版 v4 - 修复双重计算bug）
+   * 修复：不再内部叠加条件概率（各模型已在外层构建权重时加入）
+   * 采样层只负责：权重上限、随机加分、噪声扰动、分层采样、配对回避
+   */
+  smartBackSample(weightsOrCounter, strategy = 'default') {
+    const backNumbers = Array.from({ length: CONFIG.BACK_RANGE }, (_, i) => i + 1);
+    
+    // 计算历史配对频率
+    const pairFrequency = this.calculateBackPairFrequency();
+    
+    // 注意：条件概率已由各模型在外层构建权重时加入
+    // 此处不再重复叠加，避免双重计算导致权重失衡
+    
+    // 计算每个号码的调整后权重
+    const adjustedWeights = {};    
+    for (let i = 1; i <= CONFIG.BACK_RANGE; i++) {
+      const rawWeight = weightsOrCounter[i] || 0;
+      // 1. 权重上限：防止热号垄断
+      const cappedWeight = Math.min(rawWeight, CONFIG.BACK_WEIGHT_CAP);
+      // 2. 随机加分：每个号码都有基础机会
+      const withBonus = cappedWeight + CONFIG.BACK_RANDOM_BONUS;
+      // 3. 噪声扰动：每次采样都不同
+      const noise = (Math.random() - 0.5) * 2 * CONFIG.BACK_NOISE_FACTOR;
+      const finalWeight = Math.max(0.1, withBonus + noise);
+      adjustedWeights[i] = finalWeight;
+    }
+    
+    // 4. 分层采样策略：优先1奇1偶搭配
+    const oddNums = backNumbers.filter(n => n % 2 !== 0);  // [1,3,5,7,9,11]
+    const evenNums = backNumbers.filter(n => n % 2 === 0); // [2,4,6,8,10,12]
+    
+    // 5. 配对回避+和值合理性：尝试多次，避开高频配对且和值合理
+    const maxPairAttempts = 15;
+    let bestBack = null;
+    let bestPairScore = -Infinity;
+        
+    for (let attempt = 0; attempt < maxPairAttempts; attempt++) {
+      // 每次重新计算噪声（确保每次尝试结果不同）
+      const attemptWeights = {};
+      for (let i = 1; i <= CONFIG.BACK_RANGE; i++) {
+        const reNoise = (Math.random() - 0.5) * 2 * CONFIG.BACK_NOISE_FACTOR;
+        attemptWeights[i] = Math.max(0.1, adjustedWeights[i] + reNoise);
+      }
+          
+      const oddWeights = oddNums.map(n => attemptWeights[n]);
+      const evenWeights = evenNums.map(n => attemptWeights[n]);
+          
+      let back;
+      if (CONFIG.BACK_STRATIFIED_ODD && strategy !== 'regression') {
+        const oddPick = this.weightedSampleNoReplacement(oddNums, oddWeights, 1);
+        const evenPick = this.weightedSampleNoReplacement(evenNums, evenWeights, 1);
+        back = [...oddPick, ...evenPick];
+      } else {
+        const allNums = Object.keys(attemptWeights).map(Number);
+        const allWeights = Object.values(attemptWeights);
+        back = this.weightedSampleNoReplacement(allNums, allWeights, CONFIG.BACK_COUNT);
+      }
+          
+      // 和值合理性检查（新增 - 拒绝和值>16或<3的配对）
+      const backSum = back.reduce((a, b) => a + b, 0);
+      if (backSum > 16 || backSum < 3) continue; // 跳过不合理的配对
+          
+      // 评估配对得分：配对频率越低越好 + 和值合理性加分
+      const pairKey = [...back].sort((a, b) => a - b).join(',');
+      const pairFreq = pairFrequency[pairKey] || 0;
+      const uniquenessScore = pairFreq === 0 ? 20 : (10 - pairFreq * 3);
+      // 和值在6-12范围加分
+      const sumScore = (backSum >= 6 && backSum <= 12) ? 10 : (backSum >= 3 && backSum <= 16) ? 3 : -5;
+      const pairScore = uniquenessScore + sumScore;
+          
+      if (pairScore > bestPairScore) {
+        bestPairScore = pairScore;
+        bestBack = back;
+      }
+    }
+    
+    bestBack.sort((a, b) => a - b);
+    return bestBack;
+  }
+
+  /**
+   * 区间覆盖强制修正（通用方法）
+   * 确保前区号码覆盖至少 minZones 个区间
+   * 区间划分: 1-5, 6-10, 11-15, 16-20, 21-25, 26-30, 31-35
+   * @param {number[]} front - 前区号码数组
+   * @param {number} minZones - 最少区间覆盖数
+   * @returns {number[]} 修正后的前区号码数组（已排序）
+   */
+  enforceZoneCoverage(front, minZones = 4) {
+    const frontZones = new Set(front.map(n => Math.floor((n - 1) / 5)));
+    if (frontZones.size >= minZones) return front.sort((a, b) => a - b);
+    
+    const uncoveredZones = [0,1,2,3,4,5,6].filter(z => !frontZones.has(z));
+    const frontCopy = [...front];
+    
+    while (frontZones.size < minZones && uncoveredZones.length > 0) {
+      const targetZone = uncoveredZones[Math.floor(Math.random() * uncoveredZones.length)];
+      const zoneNumbers = Array.from({ length: 5 }, (_, i) => targetZone * 5 + i + 1);
+      
+      // 找最拥挤的区间
+      const zoneCount = {};
+      frontCopy.forEach(n => { zoneCount[Math.floor((n-1)/5)] = (zoneCount[Math.floor((n-1)/5)] || 0) + 1; });
+      const crowdedZone = Object.entries(zoneCount).sort((a, b) => b[1] - a[1])[0];
+      const removeIdx = frontCopy.findIndex(n => Math.floor((n-1)/5) === Number(crowdedZone[0]));
+      
+      const replacement = zoneNumbers.filter(n => !frontCopy.includes(n));
+      if (replacement.length > 0) {
+        frontCopy[removeIdx] = replacement[Math.floor(Math.random() * replacement.length)];
+        frontZones.add(targetZone);
+        uncoveredZones.splice(uncoveredZones.indexOf(targetZone), 1);
+      }
+    }
+    
+    return frontCopy.sort((a, b) => a - b);
+  }
+
+  /**
+   * 计算后区历史配对频率（新增 - 用于配对回避机制）
+   * 统计历史数据中每种后区配对出现的次数
+   */
+  calculateBackPairFrequency() {
+    if (this.cache.backPairFrequency) {
+      return this.cache.backPairFrequency;
+    }
+    
+    const pairFreq = {};
+    for (const data of this.getActiveData()) {
+      const pairKey = [...data.back].sort((a, b) => a - b).join(',');
+      pairFreq[pairKey] = (pairFreq[pairKey] || 0) + 1;
+    }
+    
+    this.cache.backPairFrequency = pairFreq;
+    return pairFreq;
+  }
+
+  /**
+   * 计算条件概率（马尔可夫转移矩阵）（优化版 v2 - Laplace平滑+时间衰减+自适应权重）
+   * 给定上期开奖号码，计算下期每个号码出现的概率
+   * 核心改进：Laplace平滑防止零概率、时间衰减让近期转移更重要、自适应置信度
+   */
+  calculateConditionalProbability() {
+    if (this.cache.conditionalProbability) {
+      return this.cache.conditionalProbability;
+    }
+      
+    const activeData = this.getActiveData();
+    if (activeData.length < 3) {
+      const frontUniform = {};      
+      const backUniform = {};      
+      for (let i = 1; i <= CONFIG.FRONT_RANGE; i++) frontUniform[i] = 1 / CONFIG.FRONT_RANGE;      
+      for (let i = 1; i <= CONFIG.BACK_RANGE; i++) backUniform[i] = 1 / CONFIG.BACK_RANGE;      
+      const result = { front: frontUniform, back: backUniform, confidence: 0 };      
+      this.cache.conditionalProbability = result;      
+      return result;      
+    }
+      
+    const LAPLACE_ALPHA = 0.01; // Laplace平滑参数
+    const TIME_DECAY = 0.98;     // 时间衰减因子
+      
+    // 构建转移矩阵：使用窗口数据 + 时间衰减权重
+    const frontTransition = {};  // frontTransition[lastNum][nextNum] = weighted_count
+    const backTransition = {};   // backTransition[lastNum][nextNum] = weighted_count
+      
+    for (let i = 1; i < activeData.length; i++) {
+      const prevDraw = activeData[i - 1];
+      const currDraw = activeData[i];
+        
+      // 时间衰减权重：越近期的转移权重越高
+      const recencyIndex = activeData.length - i;
+      const timeWeight = Math.pow(TIME_DECAY, recencyIndex);
+      
+      // 前区转移（带时间衰减权重）
+      for (const prevNum of prevDraw.front) {
+        if (!frontTransition[prevNum]) frontTransition[prevNum] = {};
+        for (const currNum of currDraw.front) {
+          frontTransition[prevNum][currNum] = (frontTransition[prevNum][currNum] || 0) + timeWeight;
+        }
+      }
+      
+      // 后区转移（带时间衰减权重）
+      for (const prevNum of prevDraw.back) {
+        if (!backTransition[prevNum]) backTransition[prevNum] = {};
+        for (const currNum of currDraw.back) {
+          backTransition[prevNum][currNum] = (backTransition[prevNum][currNum] || 0) + timeWeight;
+        }
+      }
+    }
+    
+    // 条件概率的条件始终用全数据最新期（不受窗口限制）
+    const lastDraw = this.historyData[this.historyData.length - 1];
+    const frontConditional = {};
+    const backConditional = {};
+    
+    // Laplace平滑转移概率函数
+    const laplaceProb = (rawCount, rawTotal, numOutcomes) => {
+      return (rawCount + LAPLACE_ALPHA) / (rawTotal + LAPLACE_ALPHA * numOutcomes);
+    };    
+    
+    // 前区条件概率：P(Y appears | X appeared last draw) 的聚合
+    for (let y = 1; y <= CONFIG.FRONT_RANGE; y++) {
+      let score = 0;
+      let weightSum = 0;
+      
+      for (const x of lastDraw.front) {
+        const transitions = frontTransition[x] || {};
+        const rawTotal = Object.values(transitions).reduce((a, b) => a + b, 0);
+        const rawCount = transitions[y] || 0;
+        const prob = laplaceProb(rawCount, rawTotal, CONFIG.FRONT_RANGE);
+        score += prob;
+        weightSum += 1;
+      }
+      
+      frontConditional[y] = weightSum > 0 ? score / weightSum : 1 / CONFIG.FRONT_RANGE;
+    }
+    
+    // 后区条件概率
+    for (let y = 1; y <= CONFIG.BACK_RANGE; y++) {
+      let score = 0;
+      let weightSum = 0;
+      
+      for (const x of lastDraw.back) {
+        const transitions = backTransition[x] || {};
+        const rawTotal = Object.values(transitions).reduce((a, b) => a + b, 0);
+        const rawCount = transitions[y] || 0;
+        const prob = laplaceProb(rawCount, rawTotal, CONFIG.BACK_RANGE);
+        score += prob;
+        weightSum += 1;
+      }
+      
+      backConditional[y] = weightSum > 0 ? score / weightSum : 1 / CONFIG.BACK_RANGE;
+    }
+    
+    // 二阶马尔可夫增强：考虑最近2期的联合转移
+    if (this.historyData.length >= 3) {
+      const secondLastDraw = this.historyData[this.historyData.length - 2];
+      
+      // 傀区二阶增强
+      for (let y = 1; y <= CONFIG.FRONT_RANGE; y++) {
+        let secondOrderScore = 0;
+        let secondOrderWeight = 0;
+              
+        for (const x of secondLastDraw.front) {
+          const transitions = frontTransition[x] || {};
+          const rawTotal = Object.values(transitions).reduce((a, b) => a + b, 0);
+          const rawCount = transitions[y] || 0;
+          const prob = laplaceProb(rawCount, rawTotal, CONFIG.FRONT_RANGE);
+          secondOrderScore += prob;
+          secondOrderWeight += 1;
+        }
+              
+        // 一阶权重70% + 二阶权重30%
+        const secondOrderContribution = secondOrderWeight > 0 ? secondOrderScore / secondOrderWeight : 0;
+        frontConditional[y] = frontConditional[y] * 0.7 + secondOrderContribution * 0.3;
+      }
+            
+      // 后区二阶增强
+      for (let y = 1; y <= CONFIG.BACK_RANGE; y++) {
+        let secondOrderScore = 0;
+        let secondOrderWeight = 0;
+              
+        for (const x of secondLastDraw.back) {
+          const transitions = backTransition[x] || {};
+          const rawTotal = Object.values(transitions).reduce((a, b) => a + b, 0);
+          const rawCount = transitions[y] || 0;
+          const prob = laplaceProb(rawCount, rawTotal, CONFIG.BACK_RANGE);
+          secondOrderScore += prob;
+          secondOrderWeight += 1;
+        }
+              
+        const secondOrderContribution = secondOrderWeight > 0 ? secondOrderScore / secondOrderWeight : 0;
+        backConditional[y] = backConditional[y] * 0.7 + secondOrderContribution * 0.3;
+      }
+    }
+    
+    // 计算条件概率的置信度（自适应权重基础）
+    const confidence = this.calculateConditionalConfidence(frontTransition, backTransition, LAPLACE_ALPHA);
+      
+    const result = { front: frontConditional, back: backConditional, confidence };    
+    this.cache.conditionalProbability = result;    
+    return result;
+  }
+    
+  /**
+   * 计算条件概率的置信度（自适应权重基础）
+   * 基于历史回测：条件概率推荐的高概率号码的实际命中率 vs 随机基线
+   * @returns {number} 置信度 0-1，越高说明条件概率越有预测力
+   */
+  calculateConditionalConfidence(frontTransition, backTransition, laplaceAlpha) {
+    const activeData = this.getActiveData();
+    if (activeData.length < 20) return 0.3;
+      
+    const testPeriods = Math.min(20, activeData.length - 1);
+    let frontHits = 0;
+    let backHits = 0;
+    let frontRandomHits = 0;
+    let backRandomHits = 0;
+      
+    const laplaceProb = (rawCount, rawTotal, numOutcomes) => {
+      return (rawCount + laplaceAlpha) / (rawTotal + laplaceAlpha * numOutcomes);
+    };    
+      
+    for (let t = activeData.length - testPeriods; t < activeData.length; t++) {
+      const prevDraw = activeData[t - 1];
+      const currDraw = activeData[t];
+        
+      const tempFrontCond = {};
+      const tempBackCond = {};
+        
+      for (let y = 1; y <= CONFIG.FRONT_RANGE; y++) {
+        let score = 0;
+        let wSum = 0;
+        for (const x of prevDraw.front) {
+          const tr = frontTransition[x] || {};
+          const rawTotal = Object.values(tr).reduce((a, b) => a + b, 0);
+          const rawCount = tr[y] || 0;
+          const prob = laplaceProb(rawCount, rawTotal, CONFIG.FRONT_RANGE);
+          score += prob;
+          wSum += 1;
+        }
+        tempFrontCond[y] = wSum > 0 ? score / wSum : 1 / CONFIG.FRONT_RANGE;
+      }
+        
+      for (let y = 1; y <= CONFIG.BACK_RANGE; y++) {
+        let score = 0;
+        let wSum = 0;
+        for (const x of prevDraw.back) {
+          const tr = backTransition[x] || {};
+          const rawTotal = Object.values(tr).reduce((a, b) => a + b, 0);
+          const rawCount = tr[y] || 0;
+          const prob = laplaceProb(rawCount, rawTotal, CONFIG.BACK_RANGE);
+          score += prob;
+          wSum += 1;
+        }
+        tempBackCond[y] = wSum > 0 ? score / wSum : 1 / CONFIG.BACK_RANGE;
+      }
+        
+      // 取条件概率最高的top号码
+      const topFront = Object.entries(tempFrontCond)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 10)
+        .map(x => Number(x[0]));
+      const topBack = Object.entries(tempBackCond)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 4)
+        .map(x => Number(x[0]));
+        
+      // 统计命中
+      frontHits += currDraw.front.filter(n => topFront.includes(n)).length;
+      backHits += currDraw.back.filter(n => topBack.includes(n)).length;
+        
+      // 随机基线期望命中数
+      frontRandomHits += CONFIG.FRONT_COUNT * 10 / CONFIG.FRONT_RANGE;
+      backRandomHits += CONFIG.BACK_COUNT * 4 / CONFIG.BACK_RANGE;
+    }
+      
+    // 置信度 = 实际命中率 / 随机命中率（归一化到0-1）
+    const frontConfidence = frontRandomHits > 0
+      ? Math.min(1, (frontHits / frontRandomHits) / 2)
+      : 0.3;
+    const backConfidence = backRandomHits > 0
+      ? Math.min(1, (backHits / backRandomHits) / 2)
+      : 0.3;
+      
+    const confidence = frontConfidence * 0.5 + backConfidence * 0.5;
+    console.log(`📊 条件概率置信度: 前区${frontConfidence.toFixed(2)} 后区${backConfidence.toFixed(2)} 综合${confidence.toFixed(2)} (命中率: 前${frontHits}/${frontRandomHits.toFixed(1)} 后${backHits}/${backRandomHits.toFixed(1)})`);
+    return confidence;
+  }
+
+  /**
+   * 计算号码关联性（共现频率）（新增 - 提升选号准确性）
+   * 统计哪些号码在同一期出现时，其他号码也经常出现
+   * 用于选择"搭配性好"的号码组合
+   */
+  calculateNumberCorrelation() {
+    if (this.cache.numberCorrelation) {
+      return this.cache.numberCorrelation;
+    }
+    
+    if (this.getActiveData().length < 5) {
+      const emptyResult = { front: {}, back: {} };
+      this.cache.numberCorrelation = emptyResult;
+      return emptyResult;
+    }
+    
+    // 前区共现统计（使用窗口数据）
+    const activeData = this.getActiveData();
+    const frontCoOccurrence = {};
+    for (const draw of activeData) {
+      for (let i = 0; i < draw.front.length; i++) {
+        const a = draw.front[i];
+        if (!frontCoOccurrence[a]) frontCoOccurrence[a] = {};
+        for (let j = 0; j < draw.front.length; j++) {
+          if (i === j) continue;
+          const b = draw.front[j];
+          frontCoOccurrence[a][b] = (frontCoOccurrence[a][b] || 0) + 1;
+        }
+      }
+    }
+    
+    // 后区共现统计
+    const backCoOccurrence = {};
+    for (const draw of activeData) {
+      for (let i = 0; i < draw.back.length; i++) {
+        const a = draw.back[i];
+        if (!backCoOccurrence[a]) backCoOccurrence[a] = {};
+        for (let j = 0; j < draw.back.length; j++) {
+          if (i === j) continue;
+          const b = draw.back[j];
+          backCoOccurrence[a][b] = (backCoOccurrence[a][b] || 0) + 1;
+        }
+      }
+    }
+    
+    const result = { front: frontCoOccurrence, back: backCoOccurrence };
+    this.cache.numberCorrelation = result;
+    return result;
+  }
+
+  /**
+   * 枚举所有可能的优质后区配对并评分（新增 - 硬性唯一性保证的基础）
+   * C(12,2) = 66种配对，按条件概率+频率+和值+奇偶评分排序
+   * @param {Set} usedBackKeys - 已使用的配对key集合，这些配对会被排除
+   * @returns {Array} 评分排序后的配对数组
+   */
+  enumerateBackPairs(usedBackKeys = new Set()) {
+    const pairs = [];
+    const pairFrequency = this.calculateBackPairFrequency();
+    const [_, backCounter] = this.analyzeFrequency();
+    const conditionalProb = this.calculateConditionalProbability();
+    
+    for (let a = 1; a <= CONFIG.BACK_RANGE - 1; a++) {
+      for (let b = a + 1; b <= CONFIG.BACK_RANGE; b++) {
+        const pairKey = `${a},${b}`;
+        if (usedBackKeys.has(pairKey)) continue; // 跳过已使用的配对
+        
+        let score = 0;
+        
+        // 1. 频率得分：频率越高越可能命中
+        score += ((backCounter[a] || 0) + (backCounter[b] || 0)) * 0.2;
+        
+        // 2. 条件概率得分：马尔可夫转移概率
+        score += ((conditionalProb.back[a] || 0) + (conditionalProb.back[b] || 0)) * CONFIG.BACK_CONDITIONAL_WEIGHT * conditionalProb.confidence * 10;
+        
+        // 3. 独特性得分：历史出现越少的配对越独特
+        const freq = pairFrequency[pairKey] || 0;
+        score += (5 - Math.min(freq, 5)) * 3;
+        
+        // 4. 和值合理性得分
+        const sum = a + b;
+        if (sum >= 6 && sum <= 12) score += 10;
+        else if (sum >= 3 && sum <= 16) score += 3;
+        else score -= 8;
+        
+        // 5. 奇偶平衡得分
+        if (a % 2 !== b % 2) score += 5; // 1奇1偶加分
+        else score -= 3; // 同奇同偶扣分
+        
+        // 6. 跨度得分
+        const span = b - a;
+        if (span >= 3 && span <= 8) score += 3; // 合理跨度加分
+        else if (span <= 2) score += 1; // 相邻号轻微加分
+        else score -= 2; // 跨度太大扣分
+        
+        pairs.push({ pair: [a, b], score, key: pairKey, sum, span });
+      }
+    }
+    
+    pairs.sort((a, b) => b.score - a.score);
+    return pairs;
+  }
+
+  /**
+   * 从遗漏数据构建权重（用于遗漏策略的智能采样）
+   * 遗漏值大的号码权重越高（回归理论）
+   */
+  buildWeightsFromOmission(omissionData, candidateNums = null) {
+    const weights = {};    
+    const nums = candidateNums || Object.keys(omissionData).map(Number);
+    const range = Object.keys(omissionData).length > CONFIG.FRONT_RANGE ? CONFIG.FRONT_RANGE : CONFIG.BACK_RANGE;
+    const allNums = Array.from({ length: range }, (_, i) => i + 1);
+      
+    for (const n of allNums) {
+      // 遗漏值越大，回归概率越高，权重越大
+      weights[n] = (omissionData[n] || 0) + 1; // +1避免权重为0
+    }
+      
+    return weights;
+  }
+  
+  /**
+   * 多组去重生成（优化版 v2 - 硬性唯一保证）
+   * 对同一模型生成多组号码时，**绝对保证**后区组合不重复
+   * 算法：先尝试模型自然生成去重，若失败则使用enumerateBackPairs强制枚举
+   * @param {string} model - 模型名称
+   * @param {number} groups - 生成组数
+   * @returns {Array} 唯一的号码组合数组
+   */
+  generateUniqueGroups(model, groups) {
+    const usedBackKeys = new Set(); // 已使用的后区组合key（硬性约束）
+    const results = [];
+    
+    for (let i = 0; i < groups; i++) {
+      let bestComb = null;
+      let bestScore = -Infinity;
+      
+      // 尝试多次模型自然生成，寻找不重复且高质量的组合
+      for (let attempt = 0; attempt < CONFIG.UNIQUE_BACK_ATTEMPTS; attempt++) {
+        let comb;
+        if (model === 'omission') comb = this.generateOmissionBasedPrediction();
+        else if (model === 'time_decay') comb = this.generateTimeDecayPrediction();
+        else if (model === 'bayesian') comb = this.generateBayesianPrediction();
+        else if (model === 'zhouyi') comb = this.generateZhouyiPrediction(i + attempt);
+        else if (model === 'hybrid') comb = this.generateHybridPrediction();
+        else comb = this.generateStatisticalPrediction(model);
+        
+        const front = comb.slice(0, 5);
+        const back = comb.slice(5);
+        const backKey = [...back].sort((a, b) => a - b).join(',');
+        
+        // 硬性唯一约束：已使用的配对直接跳过
+        if (usedBackKeys.has(backKey)) continue;
+        
+        // 评分：后区和值 + 前区质量
+        let score = 0;
+        const backSum = back.reduce((a, b) => a + b, 0);
+        if (backSum >= 6 && backSum <= 12) score += 20;
+        else if (backSum >= 3 && backSum <= 16) score += 5;
+        else score -= 25;
+        
+        score += this.evaluateCombination(front, back) * 0.5;
+        
+        if (score > bestScore) {
+          bestScore = score;
+          bestComb = { front, back, backKey };        
+        }
+      }
+      
+      // 如果自然生成找到了不重复的配对
+      if (bestComb && !usedBackKeys.has(bestComb.backKey)) {
+        usedBackKeys.add(bestComb.backKey);
+        results.push({ front: bestComb.front, back: bestComb.back });
+        continue;
+      }
+      
+      // 自然生成失败：使用enumerateBackPairs强制枚举最优配对
+      const bestPairs = this.enumerateBackPairs(usedBackKeys);
+      if (bestPairs.length > 0) {
+        const chosenPair = bestPairs[0];
+        usedBackKeys.add(chosenPair.key);
+        
+        // 生成前区号码（使用模型生成）
+        let front;
+        if (model === 'omission') front = this.generateOmissionBasedPrediction().slice(0, 5);
+        else if (model === 'time_decay') front = this.generateTimeDecayPrediction().slice(0, 5);
+        else if (model === 'bayesian') front = this.generateBayesianPrediction().slice(0, 5);
+        else if (model === 'zhouyi') front = this.generateZhouyiPrediction(i).slice(0, 5);
+        else if (model === 'hybrid') front = this.generateHybridPrediction().slice(0, 5);
+        else front = this.generateStatisticalPrediction(model).slice(0, 5);
+        
+        front = this.enforceZoneCoverage(front, 4);
+        results.push({ front, back: chosenPair.pair });
+      } else {
+        // 极端情况：所有66种配对都用完了（不可能出现，5组 < 66）
+        // 但以防万一，用模型自然生成兜底
+        let comb;
+        if (model === 'omission') comb = this.generateOmissionBasedPrediction();
+        else if (model === 'time_decay') comb = this.generateTimeDecayPrediction();
+        else if (model === 'bayesian') comb = this.generateBayesianPrediction();
+        else if (model === 'zhouyi') comb = this.generateZhouyiPrediction(i);
+        else if (model === 'hybrid') comb = this.generateHybridPrediction();
+        else comb = this.generateStatisticalPrediction(model);
+        
+        const front = comb.slice(0, 5);
+        const back = comb.slice(5);
+        results.push({ front, back });
+      }
+    }
+      
+    return results;
+  }
+  
+  /**
+   * 旋转矩阵多组去重生成（优化版 v2 - 硬性唯一保证）
+   * 绝对保证后区组合不重复
+   */
+  generateUniqueRotationGroups(groups) {
+    const usedBackKeys = new Set();
+    const results = [];
+    
+    // 先尝试模型自然生成去重
+    const rawResults = this.generateRotationMatrixPrediction(groups * 3); // 生成3倍数量
+    
+    for (const group of rawResults) {
+      const backKey = [...group.back].sort((a, b) => a - b).join(',');
+      const backSum = group.back.reduce((a, b) => a + b, 0);
+      
+      // 硬性唯一 + 和值合理性
+      if (!usedBackKeys.has(backKey) && backSum >= 3 && backSum <= 16) {
+        usedBackKeys.add(backKey);
+        results.push(group);
+        if (results.length >= groups) break;
+      }
+    }
+    
+    // 自然去重不足：使用enumerateBackPairs强制枚举
+    if (results.length < groups) {
+      const bestPairs = this.enumerateBackPairs(usedBackKeys);
+      for (const pairInfo of bestPairs) {
+        if (results.length >= groups) break;
+        usedBackKeys.add(pairInfo.key);
+        
+        // 生成前区：用旋转矩阵策略
+        const extraFrontResults = this.generateRotationMatrixPrediction(1);
+        const front = extraFrontResults[0].front;
+        results.push({ front, back: pairInfo.pair });
+      }
+    }
+    
+    // 最终兜底（不可能到达，因为66种配对远大于groups）
+    while (results.length < groups) {
+      const extra = this.generateRotationMatrixPrediction(1);
+      results.push(extra[0]);
+    }
+      
+    return results;
+  }
+
+  /**
+   * 前区智能采样（优化版 v4 - 修复双重计算bug）
+   * 修复：不再内部叠加条件概率和关联性（各模型已在外层构建权重时加入）
+   * 采样层只负责：权重上限、随机加分、噪声扰动、区间覆盖
+   * 区间划分: 1-5, 6-10, 11-15, 16-20, 21-25, 26-30, 31-35
+   */
+  smartFrontSample(weightsOrCounter, count = CONFIG.FRONT_COUNT) {
+    // 注意：条件概率和关联性已由各模型在外层构建权重时加入
+    // 此处不再重复叠加，避免双重计算导致权重失衡
+    
+    // 尝试多次，优先选择区间覆盖好的组合
+    const maxAttempts = 15;
+    let bestResult = null;
+    let bestCoverageScore = -Infinity;
+    
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      const adjustedWeights = {};    
+      for (let i = 1; i <= CONFIG.FRONT_RANGE; i++) {
+        const rawWeight = weightsOrCounter[i] || 0;
+        // 1. 权重上限：防止热号垄断
+        const cappedWeight = Math.min(rawWeight, CONFIG.FRONT_WEIGHT_CAP);
+        // 2. 随机加分：每个号码都有基础机会
+        const withBonus = cappedWeight + CONFIG.FRONT_RANDOM_BONUS;
+        // 3. 噪声扰动：每次采样都不同
+        const noise = (Math.random() - 0.5) * 2 * CONFIG.FRONT_NOISE_FACTOR;
+        const finalWeight = Math.max(0.2, withBonus + noise);
+        adjustedWeights[i] = finalWeight;
+      }
+      
+      const allNums = Object.keys(adjustedWeights).map(Number);
+      const allWeights = Object.values(adjustedWeights);
+      const result = this.weightedSampleNoReplacement(allNums, allWeights, count);
+      
+      // 计算区间覆盖得分
+      const zones = new Set(result.map(n => Math.floor((n - 1) / 5)));
+      const coverageScore = zones.size * 10 + // 区间数越多越好（3区=30, 4区=40, 5区=50）
+                           (zones.size >= 4 ? 15 : zones.size >= 3 ? 5 : -20); // 覆盖3区以上加分
+      
+      if (coverageScore > bestCoverageScore) {
+        bestCoverageScore = coverageScore;
+        bestResult = result;
+      }
+    }
+    
+    // 如果区间覆盖不足3个，强制调整
+    const zones = new Set(bestResult.map(n => Math.floor((n - 1) / 5)));
+    if (zones.size < 4) { // 提高标准到4个区间
+      // 替换号码，增加新区间覆盖
+      const uncoveredZones = [0,1,2,3,4,5,6].filter(z => !zones.has(z));
+      while (zones.size < 4 && uncoveredZones.length > 0) {
+        const targetZone = uncoveredZones[Math.floor(Math.random() * uncoveredZones.length)];
+        const zoneNumbers = Array.from({ length: 5 }, (_, i) => targetZone * 5 + i + 1);
+        
+        // 从最拥挤的区间中移除一个号码，替换为新区间号码
+        const zoneCount = {};
+        bestResult.forEach(n => {
+          const z = Math.floor((n - 1) / 5);
+          zoneCount[z] = (zoneCount[z] || 0) + 1;
+        });
+        const crowdedZone = Object.entries(zoneCount).sort((a, b) => b[1] - a[1])[0];
+        const removeIdx = bestResult.findIndex(n => Math.floor((n - 1) / 5) === Number(crowdedZone[0]));
+        
+        const replacement = zoneNumbers[Math.floor(Math.random() * zoneNumbers.length)];
+        if (!bestResult.includes(replacement)) {
+          bestResult[removeIdx] = replacement;
+          uncoveredZones.splice(uncoveredZones.indexOf(targetZone), 1);
+          // 重新计算区间覆盖
+          zones.add(targetZone);
+        } else {
+          // 避免重复，换一个号码
+          const altReplacement = zoneNumbers.filter(n => !bestResult.includes(n));
+          if (altReplacement.length > 0) {
+            bestResult[removeIdx] = altReplacement[Math.floor(Math.random() * altReplacement.length)];
+            uncoveredZones.splice(uncoveredZones.indexOf(targetZone), 1);
+            zones.add(targetZone);
+          }
+        }
+      }
+    }
+    
+    return bestResult;
+  }
+
+  /**
+   * 计算前区号码i的关联性加分
+   * 基于号码共现频率：如果号码i与历史中出现频率最高的号码有高共现度，加分
+   */
+  calculateCorrelationBonusForFront(num, correlation) {
+    if (!correlation || !correlation.front) return 0;
+    
+    // 获取与号码num共现频率最高的几个号码的共现次数总和
+    const coOccurrences = correlation.front[num] || {};
+    let totalCorrelation = 0;
+    
+    // 取前5个最常共现的号码的共现次数
+    const topCoOccurred = Object.entries(coOccurrences)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5);
+    
+    for (const [_, count] of topCoOccurred) {
+      totalCorrelation += count;
+    }
+    
+    // 归一化：共现5次以上开始有显著加分
+    return totalCorrelation > 5 ? totalCorrelation / 10 : totalCorrelation / 20;
+  }
+
+  /**
+   * 评估号码组合的质量（优化版 v6 - 14维评分）
    * 返回评分（0-100），分数越高表示组合越合理
-   * 新增：AC值、间距分布、连号合理性、冷热交替等特征
+   * 新增维度：AC值、间距分布、连号合理性、质合比、012路、尾数多样性
+   *          历史相似度、条件概率聚合、号码关联性
    */
   evaluateCombination(front, back) {
     let score = 100;
@@ -1059,66 +2092,161 @@ class LotteryAnalyzer {
     });
     const emptyZones = zones.filter(z => z === 0).length;
     if (emptyZones >= 4) {
-      score -= 20; // 空区太多
+      score -= 25; // 空区太多（更严格）
     } else if (emptyZones >= 3) {
-      score -= 10;
+      score -= 15;
+    } else if (emptyZones <= 1) {
+      score += 5; // 区间覆盖好加分
     }
     
-    // 4. 检查和值范围（基于208期数据：平均86.8，高频区间70-110）
+    // 4. 检查和值范围
     const frontSum = front.reduce((a, b) => a + b, 0);
     if (frontSum < CONFIG.SUM_RANGE_MIN || frontSum > CONFIG.SUM_RANGE_MAX) {
-      score -= 18; // 和值超出合理范围
+      score -= 18;
     } else if (frontSum >= 75 && frontSum <= 105) {
-      score += 10; // 和值在高频区间，加分
+      score += 10;
     }
     
-    // 5. 检查连号数量（优化：允许1-2组连号，这是常见现象）
+    // 5. 检查连号数量
     const consecutiveGroups = this.analyzeConsecutiveNumbers(front);
     if (consecutiveGroups.length >= 3) {
-      score -= 25; // 连号组数太多
+      score -= 25;
     } else if (consecutiveGroups.length === 2) {
-      score -= 5;  // 2组连号，轻微扣分
+      score -= 5;
     } else if (consecutiveGroups.length === 1) {
-      score += 5;  // 1组连号，符合常态，加分
+      score += 5;
     }
-    // 0组连号也不扣分，保持中性
     
-    // 6. AC值分析（数字复杂指数）- 基于208期数据优化
+    // 6. AC值分析
     const acValue = this.calculateACValue(front);
     if (acValue < CONFIG.AC_VALUE_MIN) {
-      score -= 20; // AC值太低，号码太集中
+      score -= 20;
     } else if (acValue > CONFIG.AC_VALUE_MAX) {
-      score -= 15; // AC值太高，号码太分散
+      score -= 15;
     } else if (acValue >= CONFIG.AC_VALUE_IDEAL_MIN && acValue <= CONFIG.AC_VALUE_IDEAL_MAX) {
-      score += 15; // AC值在理想范围(4-6)，大幅加分
+      score += 15;
     } else if (acValue === 3 || acValue === 7) {
-      score += 5;  // AC值在可接受边界，轻微加分
+      score += 5;
     }
     
-    // 7. 号码间距分布分析 - 基于208期数据优化
+    // 7. 号码间距分布分析
     const gaps = this.calculateNumberGaps(front);
     const gapVariance = this.calculateVarianceOfArray(gaps);
     if (gapVariance > CONFIG.GAP_VARIANCE_MAX) {
-      score -= 12; // 间距差异太大，分布不均
+      score -= 12;
     } else if (gapVariance < CONFIG.GAP_VARIANCE_MIN) {
-      score -= 8;  // 间距太均匀，不够自然
+      score -= 8;
     } else if (gapVariance >= 12 && gapVariance <= 35) {
-      score += 8;  // 间距方差在理想范围，加分
+      score += 8;
     }
     
-    // 8. 后区检查
+    // 8. 质合比分析（新增 - 质数:合数理想为 2:3 或 3:2）
+    const primeAnalysis = this.analyzePrimeComposite(front);
+    if (!primeAnalysis.isBalanced) {
+      score -= 8; // 质合比失衡扣分
+    } else {
+      score += 3; // 质合比平衡加分
+    }
+    
+    // 9. 012路分析（新增 - 0路:1路:2路理想分布）
+    const pathAnalysis = this.analyze012Path(front);
+    if (pathAnalysis.isBalanced) {
+      score += 3; // 012路平衡加分
+    } else {
+      const maxPath = Math.max(pathAnalysis.path0, pathAnalysis.path1, pathAnalysis.path2);
+      if (maxPath >= 4) score -= 10; // 单路过度集中
+      else if (maxPath === 0) score -= 5; // 单路空缺
+    }
+    
+    // 10. 尾数多样性分析（新增 - 5个号码应覆盖4-5个不同尾数）
+    const tailAnalysis = this.analyzeTailNumbers(front);
+    if (tailAnalysis.uniqueTails >= 5) {
+      score += 5; // 尾数完全覆盖加分
+    } else if (tailAnalysis.uniqueTails >= 4) {
+      score += 2; // 尾数基本覆盖加分
+    } else if (tailAnalysis.uniqueTails < 3) {
+      score -= 10; // 尾数太少扣分
+    }
+    if (tailAnalysis.maxTailCount >= 3) {
+      score -= 8; // 同一尾数出现3次以上扣分
+    }
+    
+    // 11. 后区检查
     if (back.length === 2) {
-      // 后区最好一奇一偶
       const backOdd = back.filter(n => n % 2 !== 0).length;
       if (backOdd === 0 || backOdd === 2) {
         score -= 10;
       }
-      
-      // 后区和值在 3-15 之间较合理
       const backSum = back.reduce((a, b) => a + b, 0);
       if (backSum < 3 || backSum > 15) {
         score -= 10;
       }
+    }
+    
+    // 12. 历史相似度检查（新增 - 太相似于近3期历史开奖的扣分）
+    // 彩票号码几乎不可能完全复现，太相似反而不合理
+    if (this.historyData.length >= 3) {
+      const recentDraws = this.historyData.slice(-3);
+      let maxSimilarity = 0;
+      
+      for (const draw of recentDraws) {
+        // 前区相似度 = 重合号码数
+        const frontOverlap = front.filter(n => draw.front.includes(n)).length;
+        // 后区相似度
+        const backOverlap = back.filter(n => draw.back.includes(n)).length;
+        const similarity = frontOverlap + backOverlap * 1.5; // 后区相似度权重更高
+        maxSimilarity = Math.max(maxSimilarity, similarity);
+      }
+      
+      // 前区5个号码重合4+个或总相似度6+，不合理
+      if (maxSimilarity >= 6) score -= 15;
+      else if (maxSimilarity >= 5) score -= 8;
+      // 相似度低（0-1个重合）加分，说明组合有独特性
+      else if (maxSimilarity <= 2) score += 5;
+    }
+    
+    // 13. 条件概率聚合检查（新增 - 号码的马尔可夫转移倾向）
+    const conditionalProb = this.calculateConditionalProbability();
+    let conditionalScore = 0;
+    for (const num of front) {
+      conditionalScore += (conditionalProb.front[num] || 0);
+    }
+    for (const num of back) {
+      conditionalScore += (conditionalProb.back[num] || 0);
+    }
+    // 条件概率聚合在合理范围加分
+    // 太低：号码不顺应转移趋势；太高：过度集中
+    const avgConditional = conditionalScore / (front.length + back.length);
+    if (avgConditional >= 0.1 && avgConditional <= 0.4) score += 8; // 合理范围
+    else if (avgConditional >= 0.05) score += 3; // 轻微倾向
+    else if (avgConditional < 0.02) score -= 5; // 无倾向
+    else if (avgConditional > 0.5) score -= 5; // 过度集中
+    
+    // 14. 号码关联性检查（新增 - 号码搭配得好加分）
+    const correlation = this.calculateNumberCorrelation();
+    let correlationScore = 0;
+    let pairCount = 0;
+    
+    for (let i = 0; i < front.length; i++) {
+      for (let j = i + 1; j < front.length; j++) {
+        const a = front[i], b = front[j];
+        const coOccurrence = (correlation.front[a] && correlation.front[a][b]) || 0;
+        correlationScore += coOccurrence;
+        pairCount++;        
+      }
+    }
+    
+    if (pairCount > 0) {
+      const avgCorrelation = correlationScore / pairCount;
+      // 关联性在合理范围加分
+      // 太低：号码搭配不默契；太高：过度依赖历史配对
+      const avgDraws = this.getActiveData().length || 1;
+      const expectedCorrelation = avgDraws * 5 / CONFIG.FRONT_RANGE; // 期望关联频率
+      
+      if (avgCorrelation > expectedCorrelation * 0.8 && avgCorrelation < expectedCorrelation * 2) score += 6;
+      else if (avgCorrelation > expectedCorrelation * 0.5) score += 2;
+      else if (avgCorrelation < expectedCorrelation * 0.3) score -= 5;
+      else if (avgCorrelation > expectedCorrelation * 3) score -= 3; // 过度依赖
     }
     
     return Math.max(0, Math.min(100, score));
@@ -1142,11 +2270,14 @@ class LotteryAnalyzer {
     this.frontNumbers.forEach(n => frontOmission[n] = 0);
     this.backNumbers.forEach(n => backOmission[n] = 0);
     
-    // 修复：正确计算每个号码的连续遗漏期数
+    // 遗漏计算使用窗口数据
+    const activeData = this.getActiveData();
+    
+    // 修复：正确计算每个号码的连续遗漏期数（从窗口数据的最后一期往前搜索）
     for (const num of this.frontNumbers) {
       let omission = 0;
-      for (let i = this.historyData.length - 1; i >= 0; i--) {
-        if (this.historyData[i].front.includes(num)) {
+      for (let i = activeData.length - 1; i >= 0; i--) {
+        if (activeData[i].front.includes(num)) {
           break; // 找到最近一次出现，停止计数
         }
         omission++;
@@ -1156,8 +2287,8 @@ class LotteryAnalyzer {
     
     for (const num of this.backNumbers) {
       let omission = 0;
-      for (let i = this.historyData.length - 1; i >= 0; i--) {
-        if (this.historyData[i].back.includes(num)) {
+      for (let i = activeData.length - 1; i >= 0; i--) {
+        if (activeData[i].back.includes(num)) {
           break; // 找到最近一次出现，停止计数
         }
         omission++;
@@ -1182,8 +2313,10 @@ class LotteryAnalyzer {
     this.frontNumbers.forEach(n => frontWeights[n] = 0);
     this.backNumbers.forEach(n => backWeights[n] = 0);
     
-    for (let i = 0; i < this.historyData.length; i++) {
-      const data = this.historyData[this.historyData.length - 1 - i];
+    // 时间衰减使用窗口数据
+    const activeData = this.getActiveData();
+    for (let i = 0; i < activeData.length; i++) {
+      const data = activeData[activeData.length - 1 - i];
       const weight = Math.pow(decayFactor, i);
       for (const num of data.front) frontWeights[num] += weight;
       for (const num of data.back) backWeights[num] += weight;
@@ -1353,8 +2486,9 @@ class LotteryAnalyzer {
       return this.cache.sumTrend;
     }
     
-    const recentCount = Math.min(CONFIG.RECENT_DRAWS_FOR_TREND, this.historyData.length);
-    const recentDraws = this.historyData.slice(-recentCount);
+    const activeData = this.getActiveData();
+    const recentCount = Math.min(CONFIG.RECENT_DRAWS_FOR_TREND, activeData.length);
+    const recentDraws = activeData.slice(-recentCount);
     
     const frontSums = recentDraws.map(d => d.front.reduce((a, b) => a + b, 0));
     const backSums = recentDraws.map(d => d.back.reduce((a, b) => a + b, 0));
@@ -1399,8 +2533,9 @@ class LotteryAnalyzer {
       return this.cache.spanAnalysis;
     }
     
-    const recentCount = Math.min(CONFIG.RECENT_DRAWS_FOR_TREND, this.historyData.length);
-    const recentDraws = this.historyData.slice(-recentCount);
+    const activeData = this.getActiveData();
+    const recentCount = Math.min(CONFIG.RECENT_DRAWS_FOR_TREND, activeData.length);
+    const recentDraws = activeData.slice(-recentCount);
     
     const frontSpans = recentDraws.map(d => Math.max(...d.front) - Math.min(...d.front));
     const backSpans = recentDraws.map(d => Math.max(...d.back) - Math.min(...d.back));
@@ -1428,7 +2563,7 @@ class LotteryAnalyzer {
       return this.cache.repeatNumbers;
     }
     
-    if (this.historyData.length < 2) {
+    if (this.getActiveData().length < 2) {
       return { frontRepeatRate: 0, backRepeatRate: 0, commonRepeatCount: 0 };
     }
     
@@ -1436,9 +2571,11 @@ class LotteryAnalyzer {
     let backRepeatCount = 0;
     let comparisonCount = 0;
     
-    for (let i = 1; i < this.historyData.length; i++) {
-      const prevDraw = this.historyData[i - 1];
-      const currDraw = this.historyData[i];
+    // 重号分析使用窗口数据
+    const activeData = this.getActiveData();
+    for (let i = 1; i < activeData.length; i++) {
+      const prevDraw = activeData[i - 1];
+      const currDraw = activeData[i];
       
       // 前区重号
       const frontRepeats = prevDraw.front.filter(n => currDraw.front.includes(n)).length;
@@ -1466,22 +2603,23 @@ class LotteryAnalyzer {
    * 分析热号和冷号的轮换规律
    */
   analyzeHotColdCycle(windowSize = 10) {
-    if (this.historyData.length < windowSize * 2) {
+    const activeData = this.getActiveData();
+    if (activeData.length < windowSize * 2) {
       return { cycleDetected: false, hotColdPattern: '数据不足' };
     }
     
     const [frontCounter] = this.analyzeFrequency();
-    const totalDraws = this.historyData.length;
+    const totalDraws = activeData.length;
     const avgFreq = totalDraws > 0 ? Object.values(frontCounter).reduce((a, b) => a + b, 0) / CONFIG.FRONT_RANGE : 0;
     
     // 分段分析热冷号变化
     const segments = [];
-    const segmentCount = Math.floor(this.historyData.length / windowSize);
+    const segmentCount = Math.floor(activeData.length / windowSize);
     
     for (let s = 0; s < segmentCount; s++) {
       const startIdx = s * windowSize;
       const endIdx = startIdx + windowSize;
-      const segmentData = this.historyData.slice(startIdx, endIdx);
+      const segmentData = activeData.slice(startIdx, endIdx);
       
       // 计算该段的热号
       const segmentCounter = {};
@@ -1539,11 +2677,12 @@ class LotteryAnalyzer {
    * 分析7个区间的出号轮动模式
    */
   analyzeZoneRotation() {
-    if (this.historyData.length < 5) {
+    const activeData = this.getActiveData();
+    if (activeData.length < 5) {
       return { rotationPattern: '数据不足', zoneActivity: {} };
     }
     
-    const recentDraws = this.historyData.slice(-20); // 最近20期
+    const recentDraws = activeData.slice(-20); // 最近20期
     const zoneStats = {};
     
     // 初始化7个区间

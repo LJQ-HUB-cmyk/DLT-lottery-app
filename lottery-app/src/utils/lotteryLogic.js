@@ -2264,10 +2264,8 @@ class LotteryAnalyzer {
     
     console.log('✅ 最终生成的号码 - 前区:', frontNumbers, '(共' + frontNumbers.length + '个)', '后区:', backNumbers, '(共' + backNumbers.length + '个)');
     
-    return [{
-      front: frontNumbers,
-      back: backNumbers
-    }];
+    // 返回扁平数组格式，与其他方法保持一致
+    return [...frontNumbers, ...backNumbers];
   }
 
   /**

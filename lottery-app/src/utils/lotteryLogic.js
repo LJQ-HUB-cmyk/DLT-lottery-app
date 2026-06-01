@@ -2127,8 +2127,9 @@ class LotteryAnalyzer {
       
       // 1️⃣ 频率分（25%）
       const freq = frontCounter[numStr] || frontCounter[number] || 0;
-      const maxFreq = Math.max(...Object.values(frontCounter));
-      const freqScore = (freq / maxFreq) * 100;
+      const allFreqValues = Object.values(frontCounter).filter(v => typeof v === 'number' && !isNaN(v));
+      const maxFreq = allFreqValues.length > 0 ? Math.max(...allFreqValues) : 1;
+      const freqScore = maxFreq > 0 ? (freq / maxFreq) * 100 : 0;
       
       // 2️⃣ 遗漏回归分（25%）- 核心！
       const omissionData = this.calculateOmission();
@@ -2158,10 +2159,13 @@ class LotteryAnalyzer {
       if (zoneNumbers.length > 0) {
         const correlations = zoneNumbers.map(n => 
           this.calculateNumberCorrelation(number, n, true)
-        );
-        correlationBonus = correlations.reduce((sum, c) => sum + c, 0) / correlations.length;
+        ).filter(c => typeof c === 'number' && !isNaN(c));  // 过滤无效值
+        
+        if (correlations.length > 0) {
+          correlationBonus = correlations.reduce((sum, c) => sum + c, 0) / correlations.length;
+        }
       }
-      const correlationScore = Math.min(100, correlationBonus * 10);
+      const correlationScore = Math.min(100, Math.max(0, correlationBonus * 10));
       
       // 5️⃣ 和值适配分（10%）- 简化版：检查是否在合理范围
       const sumScore = 50;  // 默认中等分数，后续可细化
@@ -2171,12 +2175,12 @@ class LotteryAnalyzer {
       
       // 综合评分
       const totalScore = 
-        freqScore * 0.25 +
-        omissionScore * 0.25 +
-        trendScore * 0.20 +
-        correlationScore * 0.15 +
-        sumScore * 0.10 +
-        positionScore * 0.05;
+        (freqScore || 0) * 0.25 +
+        (omissionScore || 0) * 0.25 +
+        (trendScore || 0) * 0.20 +
+        (correlationScore || 0) * 0.15 +
+        (sumScore || 0) * 0.10 +
+        (positionScore || 0) * 0.05;
       
       return {
         number,

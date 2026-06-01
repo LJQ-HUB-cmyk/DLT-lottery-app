@@ -3851,7 +3851,7 @@ class LotteryAnalyzer {
     let optimizedTuo = this.enforceDiversity(selectedTuo, danNumbers, targetCount);
     
     // 优化3：区间覆盖检查，确保拖码补充胆码未覆盖的区间
-    let zoneCoveredTuo = this.enforceZoneCoverage(optimizedTuo, danNumbers, targetCount);
+    let zoneCoveredTuo = this.enforceZoneCoverageForDanTuo(optimizedTuo, danNumbers, targetCount);
     
     // 优化4：连号控制 - 拖码中最多允许2对连号
     let finalTuo = this.enforceNoConsecutivePairs(zoneCoveredTuo, danNumbers, targetCount);
@@ -4030,9 +4030,10 @@ class LotteryAnalyzer {
   }
 
   /**
-   * 强制区间覆盖 - 确保号码分布在三个区间
+   * 强制区间覆盖（胆拖专用版）- 确保号码分布在三个区间
+   * 注意：此方法与第1422行的enforceZoneCoverage不同，专门用于胆拖场景
    */
-  enforceZoneCoverage(selectedNumbers, danNumbers, targetCount) {
+  enforceZoneCoverageForDanTuo(selectedNumbers, danNumbers, targetCount) {
     // 防御性检查
     if (!danNumbers || !Array.isArray(danNumbers)) {
       danNumbers = [];

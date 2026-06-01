@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import LotteryAnalyzer from './utils/lotteryLogic';
+import LotteryAnalyzer from './utils/LotteryAnalyzer.js';
 import { trackNumberGeneration, trackCopy, trackSave, trackDataUpdate, trackModelSelection } from './utils/baiduAnalytics';
 import AuthGuard from './components/AuthGuard';
 import DataVisualization from './components/DataVisualization';
@@ -536,10 +536,10 @@ function App() {
 
   // 计算胆拖预计注数
   const calculateDanTuoBets = () => {
-    if (danNumbers.length === 0 || tuoNumbers.length === 0) return 0;
+    if ((danNumbers || []).length === 0 || (tuoNumbers || []).length === 0) return 0;
     
-    const needFromTuo = 5 - danNumbers.length;
-    if (needFromTuo <= 0 || needFromTuo > tuoNumbers.length) return 0;
+    const needFromTuo = 5 - (danNumbers || []).length;
+    if (needFromTuo <= 0 || needFromTuo > (tuoNumbers || []).length) return 0;
     
     // 计算组合数 C(n, k)
     const combinations = (n, k) => {
@@ -1395,15 +1395,15 @@ function App() {
             <div className="number-selection">
               <div className="selection-label">
                 <span className="label-text">拖码 (可选)</span>
-                <span className="label-count">{tuoNumbers.length}/{35 - danNumbers.length}</span>
+                <span className="label-count">{(tuoNumbers || []).length}/{35 - (danNumbers || []).length}</span>
               </div>
               <div className="selected-numbers tuo-numbers">
-                {tuoNumbers.map(num => (
+                {(tuoNumbers || []).map(num => (
                   <span key={num} className="selected-number tuo" onClick={() => toggleTuoNumber(num)}>
                     {num.toString().padStart(2, '0')}
                   </span>
                 ))}
-                {tuoNumbers.length === 0 && <span className="placeholder">请选择至少1个拖码</span>}
+                {(tuoNumbers || []).length === 0 && <span className="placeholder">请选择至少1个拖码</span>}
               </div>
             </div>
 
@@ -1426,8 +1426,8 @@ function App() {
             {/* 号码选择器 */}
             <div className="number-picker">
               {Array.from({ length: 35 }, (_, i) => i + 1).map(num => {
-                const isDan = danNumbers.includes(num);
-                const isTuo = tuoNumbers.includes(num);
+                const isDan = (danNumbers || []).includes(num);
+                const isTuo = (tuoNumbers || []).includes(num);
                 return (
                   <button
                     key={num}

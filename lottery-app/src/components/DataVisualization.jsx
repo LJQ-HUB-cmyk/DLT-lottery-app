@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import LotteryAnalyzer from '../utils/lotteryLogic';
+import LotteryAnalyzer from '../utils/LotteryAnalyzer.js';
 
 /**
  * 数据可视化分析组件

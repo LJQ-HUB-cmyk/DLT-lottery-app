@@ -88,7 +88,8 @@ const modelNames = {
   bayesian: '贝叶斯动态',
   rotation: '旋转矩阵',
   zhouyi: '周易时空',
-  hybrid: '混合模型'
+  hybrid: '混合模型',
+  zone_frequency: '区间频率分析'  // 新增：区间频率分析算法
 };
 
 const modelDescriptions = {
@@ -101,7 +102,8 @@ const modelDescriptions = {
   bayesian: '使用贝叶斯定理计算条件概率，动态调整预测权重。结合先验知识（如冷热状态）和新的开奖数据，不断修正每个号码的后验概率。',
   rotation: '运用组合数学旋转矩阵，多策略轮换提高覆盖度。通过特定的数学矩阵排列，确保在投入相同注数的情况下，尽可能覆盖更多的中奖组合。',
   zhouyi: '结合周易卦象与时空因子，传统智慧与现代算法融合。将开奖日期、期号等转化为易学参数，配合五行生克原理进行选号。',
-  hybrid: '融合周易、贝叶斯、旋转矩阵三大模型优势，采用投票机制和智能加权。多数模型认可的号码优先，通过多维度评分筛选高质量组合，实现前后区均衡命中。'
+  hybrid: '融合周易、贝叶斯、旋转矩阵三大模型优势，采用投票机制和智能加权。多数模型认可的号码优先，通过多维度评分筛选高质量组合，实现前后区均衡命中。',
+  zone_frequency: '区间频率分析算法：前区分7区（每区5号），后区分2区（每区6号）。统计各区间的历史出现频率，选出最热区间，再从这些区间中选择高频号码，实现精准的区间定位。'
 };
 
 function App() {
@@ -323,7 +325,9 @@ function App() {
 
   // 重新生成号码（手动刷新）
   const handleRegenerate = () => {
+    console.log('🔄 重新生成按钮被点击');
     if (confirm('确定要重新生成吗？这将覆盖当前号码。')) {
+      console.log('✅ 用户确认重新生成');
       const newRefreshCount = refreshCount + 1;
       setIsGenerating(true);
       
@@ -359,7 +363,9 @@ function App() {
           trackNumberGeneration(model, groups);
         });
         
+        console.log('📊 生成的结果数量:', results.length);
         setPredictions(results);
+        console.log('✅ predictions状态已更新');
         setCopySuccess(false);
         setHasGeneratedToday(true);
         setRefreshCount(newRefreshCount);

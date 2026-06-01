@@ -2136,12 +2136,14 @@ class LotteryAnalyzer {
       const omission = omissionData.front[number] || 0;
       
       // 计算所有号码的平均遗漏值
-      const allFrontOmissions = Object.values(omissionData.front);
-      const avgOmission = allFrontOmissions.reduce((sum, o) => sum + o, 0) / allFrontOmissions.length;
+      const allFrontOmissions = Object.values(omissionData.front).filter(v => typeof v === 'number' && !isNaN(v));
+      const avgOmission = allFrontOmissions.length > 0 
+        ? allFrontOmissions.reduce((sum, o) => sum + o, 0) / allFrontOmissions.length 
+        : 0;
       
       const omissionDeviation = avgOmission > 0 ? (omission - avgOmission) / avgOmission : 0;
       // 偏离度越大，回归倾向越强
-      const omissionScore = Math.min(100, Math.max(0, (omissionDeviation + 1) * 50));
+      const omissionScore = Math.min(100, Math.max(0, (isFinite(omissionDeviation) ? omissionDeviation : 0 + 1) * 50));
       
       // 3️⃣ 趋势分（20%）- 对比近10期vs近30期
       const recent10Count = activeData.slice(0, 10).filter(d => 
@@ -2150,9 +2152,9 @@ class LotteryAnalyzer {
       const recent30Count = activeData.slice(0, 30).filter(d => 
         d.front.includes(number)
       ).length;
-      const expectedRecent10 = (recent30Count / 30) * 10;  // 期望的近10期出现次数
-      const trendRatio = expectedRecent10 > 0 ? recent10Count / expectedRecent10 : 1;
-      const trendScore = Math.min(100, trendRatio * 50);  // 趋势上升则高分
+      const expectedRecent10 = recent30Count > 0 ? (recent30Count / 30) * 10 : 1;  // 避免除0
+      const trendRatio = expectedRecent10 > 0 && isFinite(expectedRecent10) ? recent10Count / expectedRecent10 : 1;
+      const trendScore = Math.min(100, Math.max(0, isFinite(trendRatio) ? trendRatio * 50 : 50));
       
       // 4️⃣ 关联分（15%）- 与当前已选号码的关联性
       let correlationBonus = 0;

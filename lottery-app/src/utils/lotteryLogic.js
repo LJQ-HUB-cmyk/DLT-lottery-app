@@ -2119,9 +2119,13 @@ class LotteryAnalyzer {
       const freqScore = (freq / maxFreq) * 100;
       
       // 2️⃣ 遗漏回归分（25%）- 核心！
-      const omission = this.calculateOmission(number, true)[0];
-      const allOmissions = this.calculateOmission(number, true);
-      const avgOmission = allOmissions.reduce((sum, o) => sum + o, 0) / allOmissions.length;
+      const omissionData = this.calculateOmission();
+      const omission = omissionData.front[number] || 0;
+      
+      // 计算所有号码的平均遗漏值
+      const allFrontOmissions = Object.values(omissionData.front);
+      const avgOmission = allFrontOmissions.reduce((sum, o) => sum + o, 0) / allFrontOmissions.length;
+      
       const omissionDeviation = avgOmission > 0 ? (omission - avgOmission) / avgOmission : 0;
       // 偏离度越大，回归倾向越强
       const omissionScore = Math.min(100, Math.max(0, (omissionDeviation + 1) * 50));

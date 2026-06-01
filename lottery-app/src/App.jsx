@@ -610,6 +610,8 @@ function App() {
   const handleRecommendDanTuo = (strategy = 'hot') => {
     setRecommendStrategy(strategy);
     
+    console.log('🎯 开始胆拖推荐优化（融合区间频率分析v2）');
+    
     // 获取热号和冷号
     const hotCold = analyzer.getHotColdNumbers(15);
     const hotNumbers = hotCold.frontHot.map(item => Number(item[0]));
@@ -619,45 +621,65 @@ function App() {
     
     let recommendedDan, recommendedTuo, strategyName, description;
     
-    // 根据不同策略选择胆码和拖码
-    if (strategy === 'hot') {
-      // 热号策略：2个热号 + 1个温号作为胆码
-      recommendedDan = [hotNumbers[0], hotNumbers[1], 18];
-      const allCandidates = [
-        ...hotNumbers.slice(2, 6),
-        ...coldNumbers.slice(0, 2),
-        8, 12, 20, 28, 35
-      ];
-      // 去重并排除胆码
-      recommendedTuo = [...new Set(allCandidates)].filter(n => !recommendedDan.includes(n));
-      strategyName = '热号策略';
-      description = '选择近期最热的2个号码+1个中间号作为胆码，提高中奖概率';
-    } else if (strategy === 'balanced') {
-      // 均衡策略：1个热号 + 1个冷号 + 1个温号
-      recommendedDan = [hotNumbers[0], coldNumbers[0], 18];
-      const allCandidates = [
-        ...hotNumbers.slice(1, 4),
-        ...coldNumbers.slice(1, 4),
-        8, 12, 20, 28, 35
-      ];
-      // 去重并排除胆码
-      recommendedTuo = [...new Set(allCandidates)].filter(n => !recommendedDan.includes(n));
-      strategyName = '均衡策略';
-      description = '热号、冷号、温号均衡搭配，兼顾趋势与回补';
-    } else if (strategy === 'conservative') {
-      // 保守策略：1个热号 + 2个温号（胆码少，拖码多）
-      recommendedDan = [hotNumbers[0], 15, 25];
-      // 保守策略：尽可能多选拖码，覆盖更广
-      const allCandidates = [
-        ...hotNumbers.slice(1, 8),  // 增加热号数量
-        ...coldNumbers.slice(0, 6),  // 增加冷号数量
-        8, 12, 20, 28, 33, 35,
-        5, 9, 14, 19, 24, 30  // 补充更多号码
-      ];
-      // 去重并排除胆码
-      recommendedTuo = [...new Set(allCandidates)].filter(n => !recommendedDan.includes(n));
-      strategyName = '保守策略';
-      description = '胆码保守选择，拖码范围更广，注数更多但覆盖面广';
+    // ==================== 方案1：胆码选择优化（使用7区间频率分析）====================
+    try {
+      console.log(' 方案1：使用区间频率分析选择胆码');
+      
+      // 调用区间频率分析获取最热的4个区间和每个区间的最佳号码
+      const zoneFrequencyResult = analyzer.generateZoneFrequencyPrediction();
+      
+      // 从结果中提取胆码（选择最热的4个区间中评分最高的号码）
+      // generateZoneFrequencyPrediction 返回 [...frontNumbers, ...backNumbers]
+      const candidateDanNumbers = zoneFrequencyResult.slice(0, 5); // 前区5个号码
+      
+      // 根据策略选择胆码数量
+      let danCount = 3; // 默认3个胆码
+      
+      if (strategy === 'hot') {
+        // 热号策略：从最热区间选择3-4个胆码
+        danCount = Math.min(4, candidateDanNumbers.length);
+        recommendedDan = candidateDanNumbers.slice(0, danCount);
+        strategyName = '热号策略（区间频率优化）';
+        description = `从最热的${danCount}个区间中选择评分最高的号码作为胆码`;
+      } else if (strategy === 'balanced') {
+        // 均衡策略：从最热区间选择3个胆码，但避开绝对最热
+        danCount = 3;
+        // 取第2-4名的号码（避开最热，选择次热）
+        recommendedDan = candidateDanNumbers.slice(1, 4);
+        if (recommendedDan.length < 3) {
+          recommendedDan = candidateDanNumbers.slice(0, 3);
+        }
+        strategyName = '均衡策略（区间频率优化）';
+        description = `从热区间中选择次热门号码作为胆码，兼顾稳定性与回补`;
+      } else {
+        // 保守策略：只选2个胆码，降低风险
+        danCount = 2;
+        recommendedDan = candidateDanNumbers.slice(2, 4); // 选择第3-4名
+        if (recommendedDan.length < 2) {
+          recommendedDan = candidateDanNumbers.slice(0, 2);
+        }
+        strategyName = '保守策略（区间频率优化）';
+        description = `保守选择2个胆码，降低单点风险`;
+      }
+      
+      console.log('✅ 胆码选择完成:', recommendedDan);
+      
+    } catch (error) {
+      console.warn('方案1失败，降级到基础策略:', error);
+      // 降级到原来的逻辑
+      if (strategy === 'hot') {
+        recommendedDan = [hotNumbers[0], hotNumbers[1], 18];
+        strategyName = '热号策略';
+        description = '选择近期最热的2个号码+1个中间号作为胆码，提高中奖概率';
+      } else if (strategy === 'balanced') {
+        recommendedDan = [hotNumbers[0], coldNumbers[0], 18];
+        strategyName = '均衡策略';
+        description = '热号、冷号、温号均衡搭配，兼顾趋势与回补';
+      } else {
+        recommendedDan = [hotNumbers[0], 15, 25];
+        strategyName = '保守策略';
+        description = '胆码保守选择，拖码范围更广，注数更多但覆盖面广';
+      }
     }
     
     // 新增：智能优化胆码和拖码选择
@@ -761,8 +783,22 @@ function App() {
       // 优化2：关联性增强 - 拖码选择考虑与胆码的历史搭档关系
       const tuoCandidates = allNumbers.filter(n => !optimizedDan.includes(n));
       
-      // 使用增强版拖码优化算法（已包含关联性分析）
-      const optimizedTuo = analyzer.optimizeTuoSelection(optimizedDan, tuoCandidates, tuoCount);
+      // ==================== 方案2：使用融合区间频率的拖码优化算法 ====================
+      console.log(' 方案2：调用融合区间频率的拖码优化');
+      let optimizedTuo;
+      try {
+        // 使用新增的融合区间频率分析的拖码优化方法
+        optimizedTuo = analyzer.optimizeTuoSelectionWithZoneFrequency(
+          optimizedDan, 
+          tuoCandidates, 
+          tuoCount
+        );
+        console.log('✅ 方案2成功：拖码已基于区间频率优化');
+      } catch (error) {
+        console.warn('️ 方案2失败，降级到普通优化:', error);
+        // 降级到原来的优化方法
+        optimizedTuo = analyzer.optimizeTuoSelection(optimizedDan, tuoCandidates, tuoCount);
+      }
       
       // 使用优化后的胆拖组合
       recommendedDan = optimizedDan;
@@ -783,9 +819,124 @@ function App() {
     // 无论是否开启开关，都推荐后区号码供用户参考
     let backRecommendationInfo = '';
     
-    if (useDoubleZone || useBackZoneDanTuo) {
+    // ==================== 方案3：后区胆拖优化（使用2区间频率分析）====================
+    console.log(' 方案3：后区胆拖优化（融合区间频率）');
+    
+    try {
+      // 获取后区频率数据
+      const [, backCounter] = analyzer.analyzeFrequency();
+      
+      // 定义后区2个区间
+      const backZones = [
+        { name: '后一区', start: 1, end: 6 },
+        { name: '后二区', start: 7, end: 12 }
+      ];
+      
+      // 计算每个区间的总频率
+      const backZoneFrequencies = backZones.map(zone => {
+        let totalFreq = 0;
+        for (let i = zone.start; i <= zone.end; i++) {
+          totalFreq += backCounter[String(i)] || backCounter[i] || 0;
+        }
+        return {
+          ...zone,
+          totalFreq
+        };
+      });
+      
+      console.log('  后区区间频率:', backZoneFrequencies.map(z => `${z.name}(${z.totalFreq})`).join(', '));
+      
+      // 从每个区间选择最高频号码
+      const backDanCandidates = backZones.map(zone => {
+        let bestNum = zone.start;
+        let bestFreq = 0;
+        
+        for (let i = zone.start; i <= zone.end; i++) {
+          const freq = backCounter[String(i)] || backCounter[i] || 0;
+          if (freq > bestFreq) {
+            bestFreq = freq;
+            bestNum = i;
+          }
+        }
+        
+        return { number: bestNum, freq: bestFreq, zone: zone.name };
+      });
+      
+      console.log('  各区最佳号码:', backDanCandidates.map(c => `${c.number}(频率${c.freq}, ${c.zone})`).join(', '));
+      
+      let recommendedBackDan, recommendedBackTuo;
+      
       if (useDoubleZone && useBackFullDrag) {
-        // 一胆全拖模式：只选择1个胆码，拖码自动为剩余所有号码
+        // 一胆全拖模式：选择更热的区间的最佳号码作为胆码
+        const hotterZone = backDanCandidates[0].freq >= backDanCandidates[1].freq 
+          ? backDanCandidates[0] 
+          : backDanCandidates[1];
+        
+        recommendedBackDan = [hotterZone.number];
+        recommendedBackTuo = Array.from({ length: 12 }, (_, i) => i + 1)
+          .filter(n => !recommendedBackDan.includes(n));
+        
+        description += `；后区一胆全拖：胆码${recommendedBackDan[0]}（${hotterZone.zone}最热），拖码1-12除胆码外全部选择`;
+        backRecommendationInfo = `推荐后区号码：${recommendedBackDan[0].toString().padStart(2, '0')} + 其余11个号码全拖。理由：胆码${recommendedBackDan[0]}是${hotterZone.zone}中最热的号码（出现频率${hotterZone.freq}次），配合全拖模式可确保后区100%覆盖。`;
+        
+      } else {
+        // 普通双区模式：两个区间各选1个胆码（双胆模式）
+        // 或者选择更热的1个作为单胆
+        const useDoubleBackDan = true; // 默认使用双胆
+        
+        if (useDoubleBackDan) {
+          // 双胆模式：每个区间选1个胆码
+          recommendedBackDan = backDanCandidates.map(c => c.number);
+          
+          // 拖码：从剩余号码中选择热号+冷号组合
+          const remainingNumbers = Array.from({length: 12}, (_, i) => i + 1)
+            .filter(n => !recommendedBackDan.includes(n));
+          
+          // 选择4个拖码：2个热号 + 2个冷号
+          const sortedRemaining = remainingNumbers.sort((a, b) => {
+            const freqA = backCounter[String(a)] || backCounter[a] || 0;
+            const freqB = backCounter[String(b)] || backCounter[b] || 0;
+            return freqB - freqA;
+          });
+          
+          recommendedBackTuo = [
+            sortedRemaining[0],  // 最热
+            sortedRemaining[1],  // 次热
+            sortedRemaining[sortedRemaining.length - 1],  // 最冷
+            sortedRemaining[sortedRemaining.length - 2]   // 次冷
+          ].sort((a, b) => a - b);  // 升序排列
+          
+          description += `；后区双胆：${recommendedBackDan[0]}(${backDanCandidates[0].zone}) + ${recommendedBackDan[1]}(${backDanCandidates[1].zone})，拖码包含热号和冷号`;
+          backRecommendationInfo = `推荐后区号码：${recommendedBackDan.map(n => n.toString().padStart(2, '0')).join(' + ')} + ${recommendedBackTuo.map(n => n.toString().padStart(2, '0')).join(' ')}。理由：采用双胆策略，从后一区选择${recommendedBackDan[0]}（频率${backDanCandidates[0].freq}），从后二区选择${recommendedBackDan[1]}（频率${backDanCandidates[1].freq}），确保两区全覆盖。拖码包含热号和冷号平衡分布。`;
+          
+        } else {
+          // 单胆模式：选择更热的区间的最佳号码
+          const hotterZone = backDanCandidates[0].freq >= backDanCandidates[1].freq 
+            ? backDanCandidates[0] 
+            : backDanCandidates[1];
+          
+          recommendedBackDan = [hotterZone.number];
+          recommendedBackTuo = [
+            backDanCandidates.find(c => c.number !== hotterZone.number).number,  // 另一个区间的最佳
+            backColdNumbers[0],  // 最冷号
+            6, 9  // 温号
+          ].filter(n => !recommendedBackDan.includes(n)).slice(0, 4);
+          
+          description += `；后区：${recommendedBackDan[0]}（${hotterZone.zone}最热）作为胆码，搭配其他号码作为拖码`;
+          backRecommendationInfo = `推荐后区号码：${recommendedBackDan[0].toString().padStart(2, '0')} + ${recommendedBackTuo.map(n => n.toString().padStart(2, '0')).join(' ')}。理由：胆码${recommendedBackDan[0]}是${hotterZone.zone}中最热的号码，拖码包含另一区间的最佳号码和最冷号，平衡分布。`;
+        }
+      }
+      
+      setBackDanNumbers(recommendedBackDan);
+      setBackTuoNumbers(recommendedBackTuo);
+      
+      console.log('✅ 方案3成功：后区胆拖已基于区间频率优化');
+      
+    } catch (error) {
+      console.warn('️ 方案3失败，降级到基础策略:', error);
+      
+      // 降级到原来的逻辑
+      if (useDoubleZone && useBackFullDrag) {
         const recommendedBackDan = [backHotNumbers[0]];
         const recommendedBackTuo = Array.from({ length: 12 }, (_, i) => i + 1)
           .filter(n => !recommendedBackDan.includes(n));
@@ -796,7 +947,6 @@ function App() {
         description += `；后区一胆全拖：胆码${recommendedBackDan[0]}，拖码1-12除胆码外全部选择`;
         backRecommendationInfo = `推荐后区号码：${recommendedBackDan[0].toString().padStart(2, '0')} + 其余11个号码全拖。理由：胆码${recommendedBackDan[0]}是近期最热的后区号码，出现频率最高，配合全拖模式可确保后区100%覆盖。`;
       } else {
-        // 普通双区模式 或 前区胆拖+后区胆拖
         const recommendedBackDan = [backHotNumbers[0]];
         const recommendedBackTuo = [
           backHotNumbers[1],
@@ -811,8 +961,10 @@ function App() {
         description += `；后区：1个热号作为胆码，结合热号、冷号和温号作为拖码`;
         backRecommendationInfo = `推荐后区号码：${recommendedBackDan[0].toString().padStart(2, '0')} + ${recommendedBackTuo.map(n => n.toString().padStart(2, '0')).join(' ')}。理由：胆码${recommendedBackDan[0]}是近期最热的后区号码（出现频率最高），拖码包含次热号${recommendedBackTuo[0].toString().padStart(2, '0')}和最冷号${backColdNumbers[0].toString().padStart(2, '0')}（回补预期），搭配温号平衡分布。`;
       }
-    } else {
-      // 前区胆拖模式，不开启后区胆拖，也显示推荐的后区号码供参考
+    }
+    
+    // 前区胆拖模式，不开启后区胆拖，也显示推荐的后区号码供参考
+    if (!useDoubleZone && !useBackZoneDanTuo) {
       const recommendedBackDan = [backHotNumbers[0]];
       const recommendedBackTuo = [
         backHotNumbers[1],

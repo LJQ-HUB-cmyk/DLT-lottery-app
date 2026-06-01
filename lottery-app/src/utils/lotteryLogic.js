@@ -3908,6 +3908,128 @@ class LotteryAnalyzer {
   }
 
   /**
+   * 融合区间频率分析的拖码优化算法（方案2）
+   * 
+   * 核心逻辑：
+   * 1. 分析胆码所在的7区间分布
+   * 2. 胆码所在区间 → 适当减少拖码（避免过度集中）
+   * 3. 热度中等但未选胆码的区间 → 多选拖码（覆盖空白）
+   * 4. 冷门区间 → 少量选择（防冷门爆发）
+   * 5. 结合历史搭档关系加分
+   * 
+   * @param {number[]} danNumbers - 胆码数组
+   * @param {number[]} candidateNumbers - 候选拖码池
+   * @param {number} targetCount - 目标拖码数量
+   * @returns {number[]} 优化后的拖码数组
+   */
+  optimizeTuoSelectionWithZoneFrequency(danNumbers, candidateNumbers, targetCount = 10) {
+    console.log(' 方案2：拖码选择优化（融合区间频率）');
+    
+    // 防御性检查
+    if (!danNumbers || !Array.isArray(danNumbers) || danNumbers.length === 0) {
+      console.warn('️ 胆码为空，降级到普通优化');
+      return this.optimizeTuoSelection(danNumbers || [], candidateNumbers, targetCount);
+    }
+    
+    if (!candidateNumbers || candidateNumbers.length === 0) {
+      return [];
+    }
+    
+    // 定义7区间
+    const getZone = (num) => {
+      if (num <= 5) return 1;
+      if (num <= 10) return 2;
+      if (num <= 15) return 3;
+      if (num <= 20) return 4;
+      if (num <= 25) return 5;
+      if (num <= 30) return 6;
+      return 7;
+    };
+    
+    // 分析胆码的区间分布
+    const danZoneCount = {};
+    danNumbers.forEach(num => {
+      const zone = getZone(num);
+      danZoneCount[zone] = (danZoneCount[zone] || 0) + 1;
+    });
+    
+    console.log('  胆码区间分布:', danZoneCount);
+    
+    // 获取区间频率数据
+    const [frontCounter] = this.analyzeFrequency();
+    
+    // 计算每个区间的总频率
+    const zoneFrequencies = {};
+    for (let zone = 1; zone <= 7; zone++) {
+      const start = (zone - 1) * 5 + 1;
+      const end = zone * 5;
+      let totalFreq = 0;
+      for (let i = start; i <= end; i++) {
+        totalFreq += frontCounter[String(i)] || frontCounter[i] || 0;
+      }
+      zoneFrequencies[zone] = totalFreq;
+    }
+    
+    console.log('  区间频率:', zoneFrequencies);
+    
+    // 计算每个候选拖码的综合评分
+    const tuoScores = candidateNumbers.map(tuoNum => {
+      const zone = getZone(tuoNum);
+      let score = 0;
+      
+      // 1. 基础频率分（40%）
+      const freq = frontCounter[String(tuoNum)] || frontCounter[tuoNum] || 0;
+      const maxFreq = Math.max(...Object.values(frontCounter));
+      score += (freq / maxFreq) * 40;
+      
+      // 2. 区间分布分（30%）
+      const danInThisZone = danZoneCount[zone] || 0;
+      const zoneFreqRank = Object.entries(zoneFrequencies)
+        .sort((a, b) => b[1] - a[1])
+        .findIndex(([z]) => parseInt(z) === zone);
+      
+      if (danInThisZone === 0) {
+        // 胆码不在此区间 → 根据区间热度加分
+        if (zoneFreqRank < 4) {
+          score += 25; // 热区间，多选
+        } else if (zoneFreqRank < 6) {
+          score += 15; // 中热区间，适中
+        } else {
+          score += 8;  // 冷区间，少量
+        }
+      } else {
+        // 胆码已在此区间 → 减少拖码（避免过度集中）
+        score += 10 - danInThisZone * 3;
+      }
+      
+      // 3. 历史搭档关系加分（30%）
+      const pairBonus = this.calculatePairBonus(danNumbers, [tuoNum]);
+      score += Math.min(pairBonus[tuoNum] || 0, 30);
+      
+      return {
+        number: tuoNum,
+        score,
+        zone,
+        freq,
+        pairBonus: pairBonus[tuoNum] || 0
+      };
+    });
+    
+    // 按评分排序
+    tuoScores.sort((a, b) => b.score - a.score);
+    
+    // 选择前targetCount个
+    const selectedTuo = tuoScores.slice(0, targetCount).map(item => item.number);
+    
+    console.log('✅ 拖码选择完成:', selectedTuo, '(共' + selectedTuo.length + '个)');
+    console.log('  拖码详情:', tuoScores.slice(0, targetCount).map(item => 
+      `#${item.number}(区${item.zone}, 频率${item.freq}, 搭档${item.pairBonus}, 总分${item.score.toFixed(1)})`
+    ).join(', '));
+    
+    return selectedTuo;
+  }
+
+  /**
    * 强制区间覆盖 - 确保号码分布在三个区间
    */
   enforceZoneCoverage(selectedNumbers, danNumbers, targetCount) {

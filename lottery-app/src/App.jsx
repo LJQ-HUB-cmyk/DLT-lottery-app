@@ -114,7 +114,7 @@ function App() {
   const [showHistory, setShowHistory] = useState(false);
   const [groupsPerModel, setGroupsPerModel] = useState(5);
   const [recommendSampleSize, setRecommendSampleSize] = useState(80); // 推荐算法样本量
-  const [dataWindow, setDataWindow] = useState(0); // 历史数据窗口：0=全部，N=最近N期
+  const [dataWindow, setDataWindow] = useState(60); // 历史数据窗口：0=全部，N=最近N期（默认60期）
   const [copySuccess, setCopySuccess] = useState(false);
   const [currentRecommendation, setCurrentRecommendation] = useState(null); // 当前推荐结果
   
@@ -133,6 +133,7 @@ function App() {
   const [useDoubleZone, setUseDoubleZone] = useState(false); // 是否使用双区胆拖
   const [useBackFullDrag, setUseBackFullDrag] = useState(false); // 是否使用后区一胆全拖
   const [dantuoRecommendation, setDantuoRecommendation] = useState(null); // 胆拖推荐
+  const [tuoCount, setTuoCount] = useState(10); // 前区拖码个数（默认10个）
   const [recommendStrategy, setRecommendStrategy] = useState('hot'); // 推荐策略: hot-热号, balanced-均衡, conservative-保守
   const [hasGeneratedToday, setHasGeneratedToday] = useState(false); // 今日是否已生成（用户主动操作）
   const [useBackZoneDanTuo, setUseBackZoneDanTuo] = useState(false); // 前区胆拖模式下是否使用后区胆拖
@@ -597,6 +598,122 @@ function App() {
       description = '胆码保守选择，拖码范围更广，注数更多但覆盖面广';
     }
     
+    // 新增：智能优化胆码和拖码选择
+    try {
+      // 获取更全面的分析数据用于智能评分
+      const omissionData = analyzer.calculateOmission();
+      const conditionalProb = analyzer.calculateConditionalProbability();
+      const trendData = analyzer.analyzeSumTrend();
+      
+      // 为所有候选胆码计算综合得分
+      const allNumbers = Array.from({length: 35}, (_, i) => i + 1);
+      const danScores = allNumbers.map(num => ({
+        number: num,
+        score: analyzer.calculateDanScore(num, {
+          hotColdData: hotCold,
+          omissionData: omissionData,
+          trendData: trendData,
+          conditionalProb: conditionalProb,
+          recentPatterns: {}
+        })
+      }));
+      
+      // 按得分排序
+      danScores.sort((a, b) => b.score - a.score);
+      
+      // 优化1：胆码区间分布控制
+      const getZone = (num) => {
+        if (num <= 12) return 1;  // 一区
+        if (num <= 24) return 2;  // 二区
+        return 3;                  // 三区
+      };
+      
+      let optimizedDan;
+      
+      if (strategy === 'hot') {
+        // 热号策略：追热，选最热门的号码
+        const topScores = danScores.slice(0, 8);
+        
+        const zone1 = topScores.filter(s => getZone(s.number) === 1);
+        const zone2 = topScores.filter(s => getZone(s.number) === 2);
+        const zone3 = topScores.filter(s => getZone(s.number) === 3);
+        
+        if (zone1.length > 0 && zone2.length > 0 && zone3.length > 0) {
+          // 三区各选一个最高分
+          optimizedDan = [zone1[0].number, zone2[0].number, zone3[0].number];
+        } else {
+          optimizedDan = danScores.slice(0, 3).map(item => item.number);
+        }
+        
+      } else if (strategy === 'balanced') {
+        // 均衡策略：热冷搭配，不单纯追热
+        const topScores = danScores.slice(0, 15);
+        
+        const zone1 = topScores.filter(s => getZone(s.number) === 1);
+        const zone2 = topScores.filter(s => getZone(s.number) === 2);
+        const zone3 = topScores.filter(s => getZone(s.number) === 3);
+        
+        // 从每个区选择第2或第3名（避开最热号）
+        if (zone1.length >= 2 && zone2.length >= 2 && zone3.length >= 2) {
+          optimizedDan = [
+            zone1[1].number,  // 选第2名
+            zone2[Math.min(2, zone2.length - 1)].number,  // 选第2或第3名
+            zone3[1].number
+          ];
+        } else if (zone1.length > 0 && zone2.length > 0 && zone3.length > 0) {
+          // 如果某些区不够2个，选第1名
+          optimizedDan = [
+            zone1[Math.min(1, zone1.length - 1)].number,
+            zone2[Math.min(1, zone2.length - 1)].number,
+            zone3[Math.min(1, zone3.length - 1)].number
+          ];
+        } else {
+          // 降级：选择分布均匀的号码
+          optimizedDan = [
+            danScores[0].number,
+            danScores[Math.floor(danScores.length / 3)].number,
+            danScores[Math.floor(danScores.length * 2 / 3)].number
+          ];
+        }
+        
+      } else {
+        // 保守策略：选择中等分数的号码，避开最热门
+        const midScores = danScores.slice(5, 15);
+        
+        const zone1 = midScores.filter(s => getZone(s.number) === 1);
+        const zone2 = midScores.filter(s => getZone(s.number) === 2);
+        const zone3 = midScores.filter(s => getZone(s.number) === 3);
+        
+        if (zone1.length > 0 && zone2.length > 0 && zone3.length > 0) {
+          optimizedDan = [zone1[0].number, zone2[0].number, zone3[0].number];
+        } else {
+          optimizedDan = midScores.slice(0, 3).map(item => item.number);
+        }
+      }
+      
+      // 确保胆码数量为3个
+      if (optimizedDan.length < 3) {
+        optimizedDan = [...optimizedDan, ...recommendedDan].slice(0, 3);
+      }
+      
+      // 优化2：关联性增强 - 拖码选择考虑与胆码的历史搭档关系
+      const tuoCandidates = allNumbers.filter(n => !optimizedDan.includes(n));
+      
+      // 使用增强版拖码优化算法（已包含关联性分析）
+      const optimizedTuo = analyzer.optimizeTuoSelection(optimizedDan, tuoCandidates, tuoCount);
+      
+      // 使用优化后的胆拖组合
+      recommendedDan = optimizedDan;
+      recommendedTuo = optimizedTuo;
+      
+      // 更新描述以反映智能优化
+      description += '（已应用智能评分优化）';
+      
+    } catch (error) {
+      console.warn('智能优化失败，使用基础策略:', error);
+      // 如果智能优化失败，继续使用原始策略
+    }
+    
     setDanNumbers(recommendedDan);
     setTuoNumbers(recommendedTuo);
     
@@ -930,6 +1047,44 @@ function App() {
         <section className="card dantuo-section">
           <h2>🎯 胆拖玩法</h2>
           
+          {/* 拖码个数选择器 */}
+          <div className="tuo-count-selector" style={{
+            marginBottom: '15px',
+            padding: '12px',
+            background: '#f0f4ff',
+            borderRadius: '8px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '10px'
+          }}>
+            <label style={{ fontWeight: 'bold', color: '#333' }}>📊 前区拖码个数：</label>
+            <select 
+              value={tuoCount}
+              onChange={(e) => setTuoCount(parseInt(e.target.value))}
+              style={{
+                padding: '6px 12px',
+                border: '2px solid #667eea',
+                borderRadius: '6px',
+                fontSize: '14px',
+                fontWeight: 'bold',
+                color: '#667eea',
+                cursor: 'pointer'
+              }}
+            >
+              <option value={8}>8个</option>
+              <option value={9}>9个</option>
+              <option value={10}>10个（推荐）</option>
+              <option value={11}>11个</option>
+              <option value={12}>12个</option>
+              <option value={13}>13个</option>
+              <option value={14}>14个</option>
+              <option value={15}>15个</option>
+            </select>
+            <span style={{ fontSize: '12px', color: '#666' }}>
+              注数：{tuoCount > 2 ? `C(${tuoCount},2) = ${tuoCount * (tuoCount - 1) / 2}注` : '请选择至少3个'}
+            </span>
+          </div>
+          
           {/* 模式切换 */}
           <div className="dantuo-mode-toggle">
             <button 
@@ -979,6 +1134,9 @@ function App() {
           {/* 智能推荐策略选择 */}
           <div className="strategy-selector">
             <span className="strategy-label">推荐策略:</span>
+            <span className="data-window-hint" style={{fontSize: '0.85em', color: '#667eea', marginLeft: '10px'}}>
+              📊 基于最近{dataWindow > 0 ? dataWindow : '全部'}期数据
+            </span>
             <button 
               className={`strategy-btn ${recommendStrategy === 'hot' ? 'active' : ''}`}
               onClick={() => handleRecommendDanTuo('hot')}
@@ -1370,11 +1528,12 @@ function App() {
                         <option value={0}>全部数据</option>
                         <option value={30}>最近30期</option>
                         <option value={50}>最近50期</option>
+                        <option value={60}>最近60期（推荐）</option>
                         <option value={80}>最近80期</option>
                         <option value={100}>最近100期</option>
                         <option value={150}>最近150期</option>
                       </select>
-                      <span className="control-hint">统计分析使用的数据范围</span>
+                      <span className="control-hint">统计分析使用的数据范围（默认60期）</span>
                     </div>
                   </div>
                   <button 

@@ -3305,6 +3305,28 @@ class LotteryAnalyzer {
     // 分析胆码质量
     const danQuality = this.analyzeDanQuality(danNumbers, tuoNumbers);
 
+    // 新增：评估最佳组合质量（取前3个组合的平均质量）
+    let bestCombinationQuality = null;
+    if (combinations.length > 0) {
+      const sampleSize = Math.min(3, combinations.length);
+      let totalQualityScore = 0;
+      const qualityDetails = [];
+      
+      for (let i = 0; i < sampleSize; i++) {
+        const quality = this.evaluateCombinationQuality(combinations[i], {
+          lastDraw: this.historyData.length > 0 ? 
+            this.historyData[this.historyData.length - 1] : null
+        });
+        totalQualityScore += quality.totalScore;
+        qualityDetails.push(quality);
+      }
+      
+      bestCombinationQuality = {
+        averageScore: Math.round(totalQualityScore / sampleSize),
+        samples: qualityDetails
+      };
+    }
+
     return {
       danNumbers: danNumbers.sort((a, b) => a - b),
       tuoNumbers: tuoNumbers.sort((a, b) => a - b),
@@ -3314,9 +3336,462 @@ class LotteryAnalyzer {
       totalBets,
       combinations,
       danQuality,
+      bestCombinationQuality, // 新增：最佳组合质量评估
       cost: totalBets * 2, // 假设每注2元
       generatedAt: new Date().toLocaleString('zh-CN')
     };
+  }
+
+  /**
+   * 智能胆码评分系统 - 综合多维度因素
+   */
+  calculateDanScore(number, context = {}) {
+    const { 
+      hotColdData, 
+      omissionData, 
+      trendData,
+      conditionalProb,
+      recentPatterns 
+    } = context;
+    
+    // 动态权重调整：根据近期趋势调整各因子权重
+    const weights = this.calculateDynamicWeights(context);
+    
+    let score = 0;
+    
+    // 1. 频率得分 (动态权重)
+    if (hotColdData) {
+      const freqRank = hotColdData.frontHot.findIndex(item => Number(item[0]) === number);
+      if (freqRank !== -1) {
+        score += weights.frequency * (1 - freqRank / 10); // 排名越靠前得分越高
+      }
+    }
+    
+    // 2. 遗漏值得分 (动态权重) - 适度遗漏最佳
+    if (omissionData) {
+      const omission = omissionData.front[number] || 0;
+      const avgOmission = Object.values(omissionData.front).reduce((a,b) => a+b, 0) / 
+                         Object.values(omissionData.front).length;
+      
+      // 遗漏值在平均值的0.8-1.2倍之间得满分
+      const ratio = omission / avgOmission;
+      let omissionScore = 0;
+      if (ratio >= 0.8 && ratio <= 1.2) {
+        omissionScore = weights.omission;
+      } else if (ratio < 0.8) {
+        omissionScore = weights.omission * (ratio / 0.8); // 遗漏太少递减
+      } else {
+        omissionScore = weights.omission * Math.max(0, 1 - (ratio - 1.2) / 2); // 遗漏太多递减
+      }
+      score += omissionScore;
+    }
+    
+    // 3. 趋势得分 (动态权重)
+    if (trendData && trendData.trendScores) {
+      score += weights.trend * (trendData.trendScores[number] || 0) * 100; // 放大趋势影响
+    }
+    
+    // 4. 条件概率得分 (动态权重)
+    if (conditionalProb) {
+      score += weights.conditional * (conditionalProb.front[number] || 0) * 100; // 放大条件概率影响
+    }
+    
+    // 5. 近期模式匹配得分 (动态权重)
+    if (recentPatterns && recentPatterns.patternMatch) {
+      score += weights.pattern * (recentPatterns.patternMatch[number] || 0) * 100;
+    }
+    
+    // 6. 位置偏好得分 (动态权重) - 某些号码在特定位置出现频率更高
+    if (recentPatterns && recentPatterns.positionPreference) {
+      score += weights.position * (recentPatterns.positionPreference[number] || 0) * 100;
+    }
+    
+    return Math.min(100, Math.max(0, score));
+  }
+
+  /**
+   * 计算动态权重 - 根据近期趋势调整各因子的重要性
+   */
+  calculateDynamicWeights(context = {}) {
+    // 默认权重
+    const defaultWeights = {
+      frequency: 25,      // 频率权重
+      omission: 20,       // 遗漏权重
+      trend: 20,          // 趋势权重
+      conditional: 15,    // 条件概率权重
+      pattern: 10,        // 模式匹配权重
+      position: 10        // 位置偏好权重
+    };
+    
+    // 如果有近期数据，根据趋势调整权重
+    if (context.trendData && context.trendData.volatility) {
+      const volatility = context.trendData.volatility;
+      
+      // 高波动期：增加趋势和条件概率的权重
+      if (volatility > 0.7) {
+        return {
+          frequency: 20,
+          omission: 15,
+          trend: 25,
+          conditional: 20,
+          pattern: 10,
+          position: 10
+        };
+      }
+      // 低波动期：增加频率和遗漏的权重
+      else if (volatility < 0.3) {
+        return {
+          frequency: 30,
+          omission: 25,
+          trend: 15,
+          conditional: 10,
+          pattern: 10,
+          position: 10
+        };
+      }
+    }
+    
+    // 正常情况使用默认权重
+    return defaultWeights;
+  }
+
+  /**
+   * 智能拖码评分系统
+   */
+  calculateTuoScore(number, danNumbers, context = {}) {
+    const { 
+      hotColdData,
+      omissionData,
+      diversityBonus = true,
+      pairBonus = 0  // 搭档加分
+    } = context;
+    
+    let score = 0;
+    
+    // 1. 基础频率得分 (25%权重)
+    if (hotColdData) {
+      const freqRank = hotColdData.frontHot.findIndex(item => Number(item[0]) === number);
+      if (freqRank !== -1) {
+        score += 25 * (1 - freqRank / 15); // 前15个热号都有分
+      }
+    }
+    
+    // 2. 与胆码的互补性得分 (20%权重)
+    if (danNumbers && danNumbers.length > 0) {
+      // 计算与胆码的数值距离，避免过于集中
+      const avgDan = danNumbers.reduce((a,b) => a+b, 0) / danNumbers.length;
+      const distance = Math.abs(number - avgDan);
+      
+      // 距离适中最好（5-15之间）
+      if (distance >= 5 && distance <= 15) {
+        score += 20;
+      } else if (distance < 5) {
+        score += 20 * (distance / 5); // 太近递减
+      } else {
+        score += 20 * Math.max(0, 1 - (distance - 15) / 20); // 太远递减
+      }
+    }
+    
+    // 3. 遗漏回补潜力 (15%权重)
+    if (omissionData) {
+      const omission = omissionData.front[number] || 0;
+      const maxOmission = Math.max(...Object.values(omissionData.front));
+      
+      // 高遗漏号码有回补潜力，但不是越高越好
+      const omissionRatio = omission / maxOmission;
+      if (omissionRatio > 0.7) {
+        score += 15 * omissionRatio;
+      }
+    }
+    
+    // 4. 多样性奖励 (15%权重)
+    if (diversityBonus) {
+      // 奇偶平衡奖励
+      const danOddCount = danNumbers.filter(n => n % 2 !== 0).length;
+      const danEvenCount = danNumbers.length - danOddCount;
+      
+      if ((danOddCount > danEvenCount && number % 2 === 0) || 
+          (danEvenCount > danOddCount && number % 2 !== 0)) {
+        score += 8;
+      }
+      
+      // 大小平衡奖励 (以18为界)
+      const danBigCount = danNumbers.filter(n => n > 18).length;
+      const danSmallCount = danNumbers.length - danBigCount;
+      
+      if ((danBigCount > danSmallCount && number <= 18) || 
+          (danSmallCount > danBigCount && number > 18)) {
+        score += 7;
+      }
+    }
+    
+    // 5. AC值贡献 (10%权重)
+    const testSet = [...danNumbers, number];
+    if (testSet.length >= 3) {
+      const acValue = this.calculateACValue(testSet);
+      if (acValue >= 2 && acValue <= 4) {
+        score += 10;
+      } else if (acValue >= 1 && acValue <= 5) {
+        score += 5;
+      }
+    }
+    
+    // 6. 历史搭档关系加分 (15%权重) - 新增
+    score += Math.min(pairBonus, 15);
+    
+    return Math.min(100, Math.max(0, score));
+  }
+
+  /**
+   * 增强版拖码组合优化 - 考虑整体分布和多样性
+   */
+  optimizeTuoSelection(danNumbers, candidateTuoNumbers, targetCount = 10) {
+    if (!candidateTuoNumbers || candidateTuoNumbers.length === 0) {
+      return [];
+    }
+    
+    // 如果候选拖码数量小于等于目标数量，直接返回
+    if (candidateTuoNumbers.length <= targetCount) {
+      return candidateTuoNumbers;
+    }
+    
+    // 获取分析数据
+    const hotColdData = this.getHotColdNumbers(15);
+    const omissionData = this.calculateOmission();
+    
+    // 优化2：分析胆码与拖码的历史搭档关系
+    const pairBonus = this.calculatePairBonus(danNumbers, candidateTuoNumbers);
+    
+    // 计算每个候选拖码的得分
+    const scoredCandidates = candidateTuoNumbers.map(num => ({
+      number: num,
+      score: this.calculateTuoScore(num, danNumbers, {
+        hotColdData: hotColdData,
+        omissionData: omissionData,
+        diversityBonus: true,
+        pairBonus: pairBonus[num] || 0  // 搭档加分
+      })
+    }));
+    
+    // 按得分排序
+    scoredCandidates.sort((a, b) => b.score - a.score);
+    
+    // 初步选择高分拖码
+    let selectedTuo = scoredCandidates.slice(0, targetCount).map(item => item.number);
+    
+    // 多样性优化：确保奇偶、大小分布合理
+    let optimizedTuo = this.enforceDiversity(selectedTuo, danNumbers, targetCount);
+    
+    // 优化3：区间覆盖检查，确保拖码补充胆码未覆盖的区间
+    let zoneCoveredTuo = this.enforceZoneCoverage(optimizedTuo, danNumbers, targetCount);
+    
+    // 优化4：连号控制 - 拖码中最多允许2对连号
+    let finalTuo = this.enforceNoConsecutivePairs(zoneCoveredTuo, danNumbers, targetCount);
+    
+    // 最终去重：移除重复号码和胆码
+    finalTuo = [...new Set(finalTuo)].filter(n => !danNumbers.includes(n));
+    
+    // 如果去重后数量不足，补充高分号码
+    if (finalTuo.length < targetCount) {
+      const remaining = scoredCandidates
+        .filter(item => !finalTuo.includes(item.number) && !danNumbers.includes(item.number))
+        .slice(0, targetCount - finalTuo.length)
+        .map(item => item.number);
+      finalTuo = [...finalTuo, ...remaining];
+    }
+    
+    return finalTuo.slice(0, targetCount);
+  }
+
+  /**
+   * 计算号码对的历史搭档关系加分
+   */
+  calculatePairBonus(danNumbers, candidateNumbers) {
+    const pairBonus = {};
+    
+    // 统计历史数据中每个号码与胆码同时出现的次数
+    const activeData = this.getActiveData();
+    
+    candidateNumbers.forEach(tuoNum => {
+      let bonus = 0;
+      
+      danNumbers.forEach(danNum => {
+        // 计算这对号码在历史中同时出现的频率
+        let coOccurrenceCount = 0;
+        activeData.forEach(draw => {
+          if (draw.front.includes(danNum) && draw.front.includes(tuoNum)) {
+            coOccurrenceCount++;
+          }
+        });
+        
+        // 搭档次数越多，加分越高（但不超过上限）
+        bonus += Math.min(coOccurrenceCount * 2, 10);
+      });
+      
+      pairBonus[tuoNum] = bonus;
+    });
+    
+    return pairBonus;
+  }
+
+  /**
+   * 强制区间覆盖 - 确保号码分布在三个区间
+   */
+  enforceZoneCoverage(selectedNumbers, danNumbers, targetCount) {
+    if (selectedNumbers.length <= targetCount) {
+      return selectedNumbers;
+    }
+    
+    const allNumbers = [...danNumbers, ...selectedNumbers];
+    
+    // 检查区间分布
+    const zone1 = allNumbers.filter(n => n <= 12).length;
+    const zone2 = allNumbers.filter(n => n > 12 && n <= 24).length;
+    const zone3 = allNumbers.filter(n => n > 24).length;
+    
+    // 如果某个区间完全没有号码，则替换一个
+    let result = [...selectedNumbers];
+    
+    if (zone1 === 0) {
+      // 需要补充一区号码
+      const zone1Candidates = Array.from({length: 12}, (_, i) => i + 1)
+        .filter(n => !allNumbers.includes(n));
+      if (zone1Candidates.length > 0) {
+        result[0] = zone1Candidates[Math.floor(Math.random() * zone1Candidates.length)];
+      }
+    }
+    
+    if (zone2 === 0) {
+      // 需要补充二区号码
+      const zone2Candidates = Array.from({length: 12}, (_, i) => i + 13)
+        .filter(n => !allNumbers.includes(n));
+      if (zone2Candidates.length > 0) {
+        result[1] = zone2Candidates[Math.floor(Math.random() * zone2Candidates.length)];
+      }
+    }
+    
+    if (zone3 === 0) {
+      // 需要补充三区号码
+      const zone3Candidates = Array.from({length: 11}, (_, i) => i + 25)
+        .filter(n => !allNumbers.includes(n));
+      if (zone3Candidates.length > 0) {
+        result[2] = zone3Candidates[Math.floor(Math.random() * zone3Candidates.length)];
+      }
+    }
+    
+    return result.slice(0, targetCount);
+  }
+
+  /**
+   * 连号控制 - 拖码中最多允许1对连号
+   */
+  enforceNoConsecutivePairs(selectedNumbers, danNumbers, targetCount) {
+    if (selectedNumbers.length <= 1) {
+      return selectedNumbers;
+    }
+    
+    // 合并胆码和拖码
+    const allNumbers = [...danNumbers, ...selectedNumbers];
+    
+    // 计算连号对数
+    const countConsecutivePairs = (nums) => {
+      const sorted = [...nums].sort((a, b) => a - b);
+      let pairs = 0;
+      for (let i = 1; i < sorted.length; i++) {
+        if (sorted[i] === sorted[i - 1] + 1) {
+          pairs++;
+        }
+      }
+      return pairs;
+    };
+    
+    let consecutivePairs = countConsecutivePairs(allNumbers);
+    
+    // 如果连号对数超过2对（胆码+拖码总共），则替换拖码中的连号
+    while (consecutivePairs > 2 && selectedNumbers.length > 0) {
+      // 找到拖码中的连号
+      const sortedTuo = [...selectedNumbers].sort((a, b) => a - b);
+      let foundConsecutive = false;
+      
+      for (let i = 1; i < sortedTuo.length; i++) {
+        if (sortedTuo[i] === sortedTuo[i - 1] + 1) {
+          // 找到一对连号，替换其中一个
+          const replaceNum = sortedTuo[i];
+          const keepNum = sortedTuo[i - 1];
+          
+          // 找一个不与其他号码连续的号码替换
+          const candidates = Array.from({length: 35}, (_, idx) => idx + 1)
+            .filter(n => 
+              !allNumbers.includes(n) && 
+              n !== replaceNum &&
+              !allNumbers.includes(n - 1) && 
+              !allNumbers.includes(n + 1)
+            );
+          
+          if (candidates.length > 0) {
+            const replaceIdx = selectedNumbers.indexOf(replaceNum);
+            selectedNumbers[replaceIdx] = candidates[Math.floor(Math.random() * candidates.length)];
+            foundConsecutive = true;
+            break;
+          }
+        }
+      }
+      
+      if (!foundConsecutive) break;
+      
+      // 重新计算连号
+      const newAllNumbers = [...danNumbers, ...selectedNumbers];
+      consecutivePairs = countConsecutivePairs(newAllNumbers);
+    }
+    
+    return selectedNumbers.slice(0, targetCount);
+  }
+
+  /**
+   * 强制多样性约束
+   */
+  enforceDiversity(selectedNumbers, danNumbers, targetCount) {
+    if (selectedNumbers.length <= targetCount) {
+      return selectedNumbers;
+    }
+    
+    // 当前选中号码的统计
+    const allSelected = [...danNumbers, ...selectedNumbers];
+    const oddCount = allSelected.filter(n => n % 2 !== 0).length;
+    const evenCount = allSelected.length - oddCount;
+    const bigCount = allSelected.filter(n => n > 18).length;
+    const smallCount = allSelected.length - bigCount;
+    
+    // 如果奇偶或大小严重不平衡，进行调整
+    let result = [...selectedNumbers];
+    
+    // 奇偶平衡调整
+    if (Math.abs(oddCount - evenCount) > 3) {
+      // 需要调整奇偶比例
+      const needMoreOdd = oddCount < evenCount;
+      const candidates = Array.from({length: 35}, (_, i) => i + 1)
+        .filter(n => !allSelected.includes(n) && (n % 2 !== 0) === needMoreOdd);
+      
+      if (candidates.length > 0) {
+        // 替换一个号码来改善平衡
+        const replaceIndex = Math.floor(Math.random() * result.length);
+        result[replaceIndex] = candidates[Math.floor(Math.random() * candidates.length)];
+      }
+    }
+    
+    // 大小平衡调整
+    if (Math.abs(bigCount - smallCount) > 3) {
+      const needMoreBig = bigCount < smallCount;
+      const candidates = Array.from({length: 35}, (_, i) => i + 1)
+        .filter(n => !allSelected.includes(n) && (n > 18) === needMoreBig);
+      
+      if (candidates.length > 0) {
+        const replaceIndex = Math.floor(Math.random() * result.length);
+        result[replaceIndex] = candidates[Math.floor(Math.random() * candidates.length)];
+      }
+    }
+    
+    return result.slice(0, targetCount);
   }
 
   /**
@@ -3413,6 +3888,138 @@ class LotteryAnalyzer {
     }
 
     return Math.max(0, Math.min(100, score));
+  }
+
+  /**
+   * 增强版组合质量评估 - 多维度综合评价
+   */
+  evaluateCombinationQuality(combination, context = {}) {
+    const { front, back } = combination;
+    let qualityScore = 0;
+    const details = {};
+
+    // 1. AC值评估 (20%权重)
+    const acValue = this.calculateACValue(front);
+    details.acValue = acValue;
+    if (acValue >= 2 && acValue <= 4) {
+      qualityScore += 20;
+    } else if (acValue >= 1 && acValue <= 5) {
+      qualityScore += 10;
+    } else {
+      qualityScore += 5;
+    }
+
+    // 2. 和值评估 (15%权重)
+    const sum = front.reduce((a, b) => a + b, 0);
+    details.sum = sum;
+    const expectedSum = 90; // 理论平均和值
+    const sumDeviation = Math.abs(sum - expectedSum);
+    if (sumDeviation <= 15) {
+      qualityScore += 15;
+    } else if (sumDeviation <= 25) {
+      qualityScore += 10;
+    } else {
+      qualityScore += 5;
+    }
+
+    // 3. 奇偶比评估 (15%权重)
+    const oddCount = front.filter(n => n % 2 !== 0).length;
+    const evenCount = front.length - oddCount;
+    details.oddEvenRatio = `${oddCount}:${evenCount}`;
+    const oddEvenDiff = Math.abs(oddCount - evenCount);
+    if (oddEvenDiff <= 1) {
+      qualityScore += 15;
+    } else if (oddEvenDiff <= 2) {
+      qualityScore += 10;
+    } else {
+      qualityScore += 5;
+    }
+
+    // 4. 大小比评估 (15%权重)
+    const bigCount = front.filter(n => n > 18).length;
+    const smallCount = front.length - bigCount;
+    details.bigSmallRatio = `${bigCount}:${smallCount}`;
+    const bigSmallDiff = Math.abs(bigCount - smallCount);
+    if (bigSmallDiff <= 1) {
+      qualityScore += 15;
+    } else if (bigSmallDiff <= 2) {
+      qualityScore += 10;
+    } else {
+      qualityScore += 5;
+    }
+
+    // 5. 区间分布评估 (15%权重)
+    const zone1 = front.filter(n => n >= 1 && n <= 12).length; // 一区
+    const zone2 = front.filter(n => n >= 13 && n <= 24).length; // 二区
+    const zone3 = front.filter(n => n >= 25 && n <= 35).length; // 三区
+    details.zoneDistribution = `${zone1}:${zone2}:${zone3}`;
+    
+    // 理想分布是每个区都有号码，且分布相对均匀
+    const hasAllZones = zone1 > 0 && zone2 > 0 && zone3 > 0;
+    if (hasAllZones) {
+      qualityScore += 15;
+    } else if (zone1 > 0 && zone2 > 0 || zone2 > 0 && zone3 > 0 || zone1 > 0 && zone3 > 0) {
+      qualityScore += 10; // 至少覆盖两个区
+    } else {
+      qualityScore += 5; // 只覆盖一个区
+    }
+
+    // 6. 连号评估 (10%权重)
+    const consecutivePairs = this.countConsecutivePairs(front);
+    details.consecutivePairs = consecutivePairs;
+    if (consecutivePairs <= 1) {
+      qualityScore += 10; // 最多1对连号为佳
+    } else if (consecutivePairs <= 2) {
+      qualityScore += 5;
+    } else {
+      qualityScore += 0; // 连号过多
+    }
+
+    // 7. 重号评估 (10%权重) - 与上期重复号码
+    if (context.lastDraw && context.lastDraw.front) {
+      const repeatCount = front.filter(n => context.lastDraw.front.includes(n)).length;
+      details.repeatCount = repeatCount;
+      if (repeatCount <= 2) {
+        qualityScore += 10; // 0-2个重号为佳
+      } else if (repeatCount <= 3) {
+        qualityScore += 5;
+      } else {
+        qualityScore += 0; // 重号过多
+      }
+    } else {
+      qualityScore += 5; // 无上期数据时给基础分
+    }
+
+    return {
+      totalScore: Math.min(100, qualityScore),
+      details,
+      rating: this.getQualityRating(qualityScore)
+    };
+  }
+
+  /**
+   * 计算连号对数
+   */
+  countConsecutivePairs(numbers) {
+    const sorted = [...numbers].sort((a, b) => a - b);
+    let pairs = 0;
+    for (let i = 1; i < sorted.length; i++) {
+      if (sorted[i] === sorted[i - 1] + 1) {
+        pairs++;
+      }
+    }
+    return pairs;
+  }
+
+  /**
+   * 获取质量评级
+   */
+  getQualityRating(score) {
+    if (score >= 90) return 'S级 (极佳)';
+    if (score >= 80) return 'A级 (优秀)';
+    if (score >= 70) return 'B级 (良好)';
+    if (score >= 60) return 'C级 (一般)';
+    return 'D级 (较差)';
   }
 
   /**

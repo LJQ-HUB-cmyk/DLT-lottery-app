@@ -139,6 +139,7 @@ function App() {
   const [useBackZoneDanTuo, setUseBackZoneDanTuo] = useState(false); // 前区胆拖模式下是否使用后区胆拖
   const [selectionMode, setSelectionMode] = useState('dan'); // 选择模式: dan-胆码, tuo-拖码
   const [backSelectionMode, setBackSelectionMode] = useState('dan'); // 后区选择模式
+  const [copyDanTuoSuccess, setCopyDanTuoSuccess] = useState(false); // 复制成功状态
 
   // 从数据中获取最后一组（最新一期）号码
   const getLatestDrawFromData = () => {
@@ -217,28 +218,43 @@ function App() {
     
     // 追踪数据加载
     trackDataUpdate(analyzer.historyData.length);
-  };  const clearCache = () => {
+  };
+
+  const clearCache = () => {
     localStorage.removeItem('lottery_data');
     setDataInput(defaultData);
   };
 
-    // 立即分析推荐模型
+  // 立即分析推荐模型
   const handleAnalyzeRecommendation = () => {
+    console.log('🔴 按钮被点击了！');
+    console.log('analyzer.historyData 长度:', analyzer.historyData.length);
+    
     const latestDraw = getLatestDrawFromData();
+    console.log('latestDraw:', latestDraw);
+    
     if (!latestDraw) {
-      alert('请先加载历史数据！');
+      alert('请先加载历史数据！当前数据量: ' + analyzer.historyData.length);
       return;
     }
+    
+    console.log('🔍 开始分析推荐模型...');
+    console.log('最新开奖:', latestDraw);
+    console.log('样本量:', recommendSampleSize);
+    console.log('数据窗口:', dataWindow);
     
     // 设置数据窗口
     analyzer.setDataWindow(dataWindow);
     
-    // 清除之前的推荐结果，触发重新计算
-    setCurrentRecommendation(null);
-    setTimeout(() => {
+    // 立即执行分析，不使用setTimeout
+    try {
       const recommendation = analyzer.analyzeAndRecommendModel(latestDraw, recommendSampleSize);
+      console.log('✅ 推荐结果:', recommendation);
       setCurrentRecommendation(recommendation);
-    }, 100);
+    } catch (error) {
+      console.error('❌ 分析失败:', error);
+      alert('分析失败：' + error.message);
+    }
   };
 
   // 加载今日缓存
@@ -542,6 +558,46 @@ function App() {
     }
     
     return frontBets;
+  };
+
+  // 复制当前选择的胆拖号码
+  const handleCopyDanTuoSelection = () => {
+    if (danNumbers.length === 0 || tuoNumbers.length === 0) {
+      alert('请先选择胆码和拖码！');
+      return;
+    }
+
+    // 格式化胆码和拖码
+    const danStr = danNumbers.map(n => n.toString().padStart(2, '0')).join(', ');
+    const tuoStr = tuoNumbers.map(n => n.toString().padStart(2, '0')).join(', ');
+    
+    // 构建复制文本
+    let copyText = `【前区胆拖】\n`;
+    copyText += `胆码：${danStr}\n`;
+    copyText += `拖码：${tuoStr}\n`;
+    copyText += `\n注数：${calculateDanTuoBets()}注`;
+    
+    // 如果有后区胆拖
+    if (backDanNumbers.length > 0 || backTuoNumbers.length > 0) {
+      const backDanStr = backDanNumbers.map(n => n.toString().padStart(2, '0')).join(', ');
+      const backTuoStr = backTuoNumbers.map(n => n.toString().padStart(2, '0')).join(', ');
+      copyText += `\n\n【后区胆拖】\n`;
+      if (backDanNumbers.length > 0) {
+        copyText += `胆码：${backDanStr}\n`;
+      }
+      if (backTuoNumbers.length > 0) {
+        copyText += `拖码：${backTuoStr}\n`;
+      }
+    }
+    
+    // 复制到剪贴板
+    navigator.clipboard.writeText(copyText).then(() => {
+      setCopyDanTuoSuccess(true);
+      setTimeout(() => setCopyDanTuoSuccess(false), 2000);
+    }).catch(err => {
+      console.error('复制失败:', err);
+      alert('复制失败，请手动复制');
+    });
   };
 
   // 胆拖玩法 - 智能推荐
@@ -1199,7 +1255,7 @@ function App() {
                 className={`mode-btn ${selectionMode === 'dan' ? 'active dan-mode' : ''}`}
                 onClick={() => setSelectionMode('dan')}
               >
-                🎯 选胆码
+                 选胆码
               </button>
               <button
                 className={`mode-btn ${selectionMode === 'tuo' ? 'active tuo-mode' : ''}`}
@@ -1340,6 +1396,24 @@ function App() {
               )}
             </div>
             <div className="action-buttons">
+              <button 
+                className="copy-selection-btn"
+                onClick={handleCopyDanTuoSelection}
+                style={{
+                  background: copyDanTuoSuccess ? '#67c23a' : '#409eff',
+                  color: '#fff',
+                  border: 'none',
+                  padding: '10px 20px',
+                  borderRadius: '6px',
+                  cursor: 'pointer',
+                  fontWeight: 'bold',
+                  fontSize: '14px',
+                  transition: 'all 0.3s',
+                  marginRight: '10px'
+                }}
+              >
+                {copyDanTuoSuccess ? '✅ 已复制' : '📋 复制选号'}
+              </button>
               <button 
                 className="generate-btn"
                 onClick={handleGenerateDanTuo}

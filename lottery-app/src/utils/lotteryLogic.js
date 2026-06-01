@@ -3466,6 +3466,11 @@ class LotteryAnalyzer {
       pairBonus = 0  // 搭档加分
     } = context;
     
+    // 防御性检查
+    if (!danNumbers || !Array.isArray(danNumbers)) {
+      danNumbers = [];
+    }
+    
     let score = 0;
     
     // 1. 基础频率得分 (25%权重)
@@ -3546,6 +3551,11 @@ class LotteryAnalyzer {
    * 增强版拖码组合优化 - 考虑整体分布和多样性
    */
   optimizeTuoSelection(danNumbers, candidateTuoNumbers, targetCount = 10) {
+    // 防御性检查：确保 danNumbers 是数组
+    if (!danNumbers || !Array.isArray(danNumbers)) {
+      danNumbers = [];
+    }
+    
     if (!candidateTuoNumbers || candidateTuoNumbers.length === 0) {
       return [];
     }
@@ -3607,6 +3617,11 @@ class LotteryAnalyzer {
    * 计算号码对的历史搭档关系加分
    */
   calculatePairBonus(danNumbers, candidateNumbers) {
+    // 防御性检查
+    if (!danNumbers || !Array.isArray(danNumbers) || danNumbers.length === 0) {
+      return {};
+    }
+    
     const pairBonus = {};
     
     // 统计历史数据中每个号码与胆码同时出现的次数
@@ -3638,6 +3653,11 @@ class LotteryAnalyzer {
    * 强制区间覆盖 - 确保号码分布在三个区间
    */
   enforceZoneCoverage(selectedNumbers, danNumbers, targetCount) {
+    // 防御性检查
+    if (!danNumbers || !Array.isArray(danNumbers)) {
+      danNumbers = [];
+    }
+    
     if (selectedNumbers.length <= targetCount) {
       return selectedNumbers;
     }
@@ -3686,6 +3706,11 @@ class LotteryAnalyzer {
    * 连号控制 - 拖码中最多允许1对连号
    */
   enforceNoConsecutivePairs(selectedNumbers, danNumbers, targetCount) {
+    // 防御性检查
+    if (!danNumbers || !Array.isArray(danNumbers)) {
+      danNumbers = [];
+    }
+    
     if (selectedNumbers.length <= 1) {
       return selectedNumbers;
     }
@@ -3751,6 +3776,11 @@ class LotteryAnalyzer {
    * 强制多样性约束
    */
   enforceDiversity(selectedNumbers, danNumbers, targetCount) {
+    // 防御性检查
+    if (!danNumbers || !Array.isArray(danNumbers)) {
+      danNumbers = [];
+    }
+    
     if (selectedNumbers.length <= targetCount) {
       return selectedNumbers;
     }

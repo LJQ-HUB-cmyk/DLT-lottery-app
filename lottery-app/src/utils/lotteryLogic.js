@@ -4052,8 +4052,64 @@ class LotteryAnalyzer {
     // 按评分排序
     tuoScores.sort((a, b) => b.score - a.score);
     
-    // 选择前targetCount个
-    const selectedTuo = tuoScores.slice(0, targetCount).map(item => item.number);
+    // 选择前targetCount个，但要避免连号
+    const selectedTuo = [];
+    const selectedNumbers = new Set(danNumbers); // 已选号码集合（包含胆码）
+    
+    for (const item of tuoScores) {
+      if (selectedTuo.length >= targetCount) break;
+      
+      const num = item.number;
+      
+      // 检查是否与已选号码（胆码+已选拖码）形成连号
+      let hasConsecutive = false;
+      for (const selected of selectedNumbers) {
+        if (Math.abs(num - selected) <= 1) {
+          hasConsecutive = true;
+          break;
+        }
+      }
+      
+      if (!hasConsecutive) {
+        selectedTuo.push(num);
+        selectedNumbers.add(num);
+      }
+    }
+    
+    // 如果因为间距限制导致数量不足，放宽限制（允许隔1个号码）
+    if (selectedTuo.length < targetCount) {
+      console.log('  间距限制导致数量不足，放宽限制');
+      for (const item of tuoScores) {
+        if (selectedTuo.length >= targetCount) break;
+        if (!selectedNumbers.has(item.number)) {
+          // 允许隔1个号码的连号（如3和5）
+          let hasCloseNumber = false;
+          for (const selected of selectedNumbers) {
+            if (Math.abs(item.number - selected) === 1) {
+              hasCloseNumber = true;
+              break;
+            }
+          }
+          
+          if (!hasCloseNumber) {
+            selectedTuo.push(item.number);
+            selectedNumbers.add(item.number);
+          }
+        }
+      }
+    }
+    
+    // 如果还是不足，只能接受连号
+    if (selectedTuo.length < targetCount) {
+      console.log('  仍然数量不足，接受连号');
+      for (const item of tuoScores) {
+        if (selectedTuo.length >= targetCount) break;
+        if (!selectedNumbers.has(item.number)) {
+          selectedTuo.push(item.number);
+          selectedNumbers.add(item.number);
+        }
+      }
+    }
     
     console.log('✅ 拖码选择完成:', selectedTuo, '(共' + selectedTuo.length + '个)');
     console.log('  拖码详情:', tuoScores.slice(0, targetCount).map(item => 

@@ -14,6 +14,8 @@ import { TrendAnalyzer } from './analysis/TrendAnalyzer.js';
 import { CorrelationAnalyzer } from './analysis/CorrelationAnalyzer.js';
 import { ConditionalProbability } from './analysis/ConditionalProbability.js';
 import { DanTuoOptimizer } from './optimization/DanTuoOptimizer.js';
+import { BackDanOptimizer } from './optimization/BackDanOptimizer.js';
+import { FrontDanOptimizer } from './optimization/FrontDanOptimizer.js';
 
 // 导入所有算法模型
 import { BayesianDynamicModel } from './algorithms/BayesianDynamic.js';
@@ -476,6 +478,132 @@ class LotteryAnalyzer {
   }
 
   /**
+   * 获取时间衰减权重（公开方法）
+   * @returns {Object} { front: {号码: 权重}, back: {号码: 权重} }
+   */
+  calculateTimeDecayWeights() {
+    if (!this.models.timeDecay) {
+      throw new Error('模型未初始化，请先调用 loadHistoryData()');
+    }
+    return this.models.timeDecay.calculateTimeDecayWeights();
+  }
+
+  /**
+   * 优化后区胆码推荐（多维度智能评分）
+   * 融合：条件概率 + 遗漏回归 + 时间衰减 + 频率 + 区间分布
+   * @param {number} backDanCount - 需要推荐的胆码数量
+   * @returns {number[]} 推荐的后区胆码
+   */
+  optimizeBackDanRecommendation(backDanCount = 1) {
+    console.log('🎯 后区胆码智能推荐（多维度评分）');
+    
+    // 1. 获取条件概率
+    const conditionalProb = this.conditionalProbability.calculateConditionalProbability();
+    const confidence = conditionalProb.confidence || 0.3;
+    
+    // 2. 获取遗漏数据
+    const omissionData = this.omissionCalculator.calculateOmission();
+    const avgBackOmission = this.omissionCalculator.getAverageOmission('back');
+    const omissionStd = this.omissionCalculator.getOmissionStd('back');
+    
+    // 3. 获取频率数据
+    const [, backCounter] = this.frequencyAnalyzer.analyzeFrequency();
+    const maxFreq = Math.max(...Object.values(backCounter));
+    
+    // 4. 获取时间衰减权重
+    const timeWeights = this.calculateTimeDecayWeights();
+    
+    // 5. 计算每个号码的综合得分
+    const scored = [];
+    for (let num = 1; num <= CONFIG.BACK_RANGE; num++) {
+      let score = 0;
+      
+      // 维度1: 条件概率得分（25%）
+      const condProb = conditionalProb.back[num] || 0;
+      score += condProb * CONFIG.BACK_CONDITIONAL_WEIGHT * confidence * 10;
+      
+      // 维度2: 遗漏回归加成（25%）
+      const currentOmission = omissionData.back[num] || 0;
+      const omissionDeviation = currentOmission - avgBackOmission;
+      if (omissionDeviation > 0) {
+        score += Math.min(omissionDeviation * 0.5, 20);
+        if (omissionDeviation > omissionStd * 2) {
+          score += 10; // 超过2倍标准差额外加分
+        }
+      }
+      
+      // 维度3: 频率得分（20%）
+      const freq = backCounter[String(num)] || backCounter[num] || 0;
+      score += (freq / maxFreq) * 20;
+      
+      // 维度4: 时间衰减得分（15%）
+      const timeWeight = timeWeights.back[num] || 0;
+      score += timeWeight * 15;
+      
+      // 维度5: 区间分布均衡（15%）
+      const isInFirstHalf = num <= 6 ? 1 : 0; // 后一区 vs 后二区
+      const expectedBalance = 0.5; // 理想情况下两区均衡
+      score += Math.abs(isInFirstHalf - expectedBalance) * 15;
+      
+      scored.push({
+        number: num,
+        score,
+        condProb,
+        omission: currentOmission,
+        freq,
+        timeWeight
+      });
+    }
+    
+    // 按得分降序排序
+    scored.sort((a, b) => b.score - a.score);
+    
+    // 选择前 backDanCount 个号码，但确保区间分布均衡
+    const selected = [];
+    const selectedNumbers = new Set();
+    
+    for (const item of scored) {
+      if (selected.length >= backDanCount) break;
+      
+      const num = item.number;
+      
+      // 检查是否已在选中
+      if (selectedNumbers.has(num)) continue;
+      
+      // 区间分布检查：如果已经选了2个以上胆码，确保两区都有覆盖
+      if (selected.length >= 2) {
+        const firstHalfCount = selected.filter(n => n <= 6).length;
+        const secondHalfCount = selected.length - firstHalfCount;
+        
+        // 如果某一区已有2个，优先选择另一区
+        if (num <= 6 && firstHalfCount >= 2) continue;
+        if (num > 6 && secondHalfCount >= 2) continue;
+      }
+      
+      selected.push(num);
+      selectedNumbers.add(num);
+    }
+    
+    // 如果数量不足（区间限制导致），放宽限制
+    if (selected.length < backDanCount) {
+      for (const item of scored) {
+        if (selected.length >= backDanCount) break;
+        if (!selectedNumbers.has(item.number)) {
+          selected.push(item.number);
+          selectedNumbers.add(item.number);
+        }
+      }
+    }
+    
+    console.log('✅ 后区胆码推荐完成:', selected.sort((a, b) => a - b));
+    console.log('  推荐详情:', scored.slice(0, backDanCount).map(item => 
+      `#${item.number}(条件概率${item.condProb.toFixed(3)}, 遗漏${item.omission}, 频率${item.freq}, 时间权重${item.timeWeight.toFixed(3)}, 总分${item.score.toFixed(2)})`
+    ).join(', '));
+    
+    return selected.sort((a, b) => a - b);
+  }
+
+  /**
    * 生成单式胆拖
    */
   generateDanTuo(danNumbers, tuoNumbers, frontCount = CONFIG.FRONT_COUNT) {
@@ -509,12 +637,16 @@ class LotteryAnalyzer {
     // 从拖码中选择needFromTuo个号码的所有组合
     const tuoCombinations = this.combinations(tuoNumbers, needFromTuo);
     
+    // 用条件概率选最优后区（替代硬编码[1,2])
+    const conditionalProb = this.conditionalProbability.calculateConditionalProbability();
+    const optimalBack = this.enumerateBackPairs(conditionalProb);
+
     // 生成所有完整组合
     const combinations = tuoCombinations.map(tuoSelection => {
       const fullCombination = [...danNumbers, ...tuoSelection].sort((a, b) => a - b);
       return {
         front: fullCombination,
-        back: [1, 2], // 默认后区，可以后续优化
+        back: optimalBack, // 条件概率最优后区
         danNumbers: danNumbers,
         tuoNumbers: tuoSelection,
         combinationType: '前区胆拖'
@@ -554,6 +686,51 @@ class LotteryAnalyzer {
       });
     }
     return result;
+  }
+
+  /**
+   * 枚举最优后区配对（基于条件概率评分）
+   * 从所有C(12,2)=66种后区配对中选择评分最高的1组
+   * @param {Object} conditionalProb - 条件概率数据 {front, back, confidence}
+   * @returns {number[]} 最优2个后区号码
+   */
+  enumerateBackPairs(conditionalProb) {
+    const confidence = conditionalProb.confidence || 0.3;
+    let bestPair = [1, 2]; // 兜底
+    let bestScore = -Infinity;
+
+    // 枚举所有66种配对
+    for (let a = 1; a <= CONFIG.BACK_RANGE; a++) {
+      for (let b = a + 1; b <= CONFIG.BACK_RANGE; b++) {
+        let score = 0;
+        // 条件概率得分
+        score += (conditionalProb.back[a] || 0) * CONFIG.BACK_CONDITIONAL_WEIGHT * confidence * 10;
+        score += (conditionalProb.back[b] || 0) * CONFIG.BACK_CONDITIONAL_WEIGHT * confidence * 10;
+        // 频率得分
+        const [, backCounter] = this.frequencyAnalyzer.analyzeFrequency();
+        const freqA = (backCounter[String(a)] || backCounter[a] || 0) * 0.2;
+        const freqB = (backCounter[String(b)] || backCounter[b] || 0) * 0.2;
+        score += freqA + freqB;
+        // 遗漏回归得分
+        const omission = this.omissionCalculator.calculateOmission();
+        const avgOmission = this.omissionCalculator.getAverageOmission('back');
+        const omissionA = omission.back[a] || 0;
+        const omissionB = omission.back[b] || 0;
+        if (omissionA > avgOmission) score += (omissionA - avgOmission) * 0.3;
+        if (omissionB > avgOmission) score += (omissionB - avgOmission) * 0.3;
+        // 历史配对频率
+        const backPairFreq = this.cache.backPairFrequency;
+        if (backPairFreq) {
+          const pairKey = `${a}-${b}`;
+          score += (backPairFreq[pairKey] || 0) * 0.1;
+        }
+        if (score > bestScore) {
+          bestScore = score;
+          bestPair = [a, b];
+        }
+      }
+    }
+    return bestPair;
   }
 
   /**

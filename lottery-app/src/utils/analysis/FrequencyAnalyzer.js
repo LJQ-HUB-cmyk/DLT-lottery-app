@@ -122,5 +122,66 @@ export class FrequencyAnalyzer {
    */
   clearCache() {
     this.cache = null;
+    this.recentCache = null;
+  }
+
+  /**
+   * 分析近期频率趋势（仅统计最近N期的数据）
+   * 返回近期频率计数和趋势动量（近期频率 - 全期频率期望）
+   * @param {number} recentCount - 近期期数（默认15）
+   * @returns {Object} { front: {号码: 近期频率}, back: {号码: 近期频率}, frontMomentum: {号码: 趋势动量}, backMomentum: {号码: 趋势动量} }
+   */
+  analyzeRecentFrequency(recentCount = CONFIG.RECENT_DRAWS_FOR_TREND) {
+    if (this.recentCache && this.recentCache.recentCount === recentCount) {
+      return this.recentCache;
+    }
+
+    const activeData = this.getActiveData();
+    const recent = activeData.slice(-recentCount);
+    const recentLength = recent.length;
+
+    // 近期频率计数
+    const frontCounter = {};
+    const backCounter = {};
+    for (let i = 1; i <= CONFIG.FRONT_RANGE; i++) frontCounter[i] = 0;
+    for (let i = 1; i <= CONFIG.BACK_RANGE; i++) backCounter[i] = 0;
+
+    for (const data of recent) {
+      for (const num of data.front) frontCounter[num]++;
+      for (const num of data.back) backCounter[num]++;
+    }
+
+    // 全期频率（用于对比计算趋势动量）
+    const [allFront, allBack] = this.analyzeFrequency();
+    const totalDraws = activeData.length;
+
+    // 趋势动量 = 近期频率/近期期数 - 全期频率/全期期数
+    // 正值表示近期比全期更活跃（上升趋势），负值表示近期比全期更冷（下降趋势）
+    const frontMomentum = {};
+    const backMomentum = {};
+
+    for (let i = 1; i <= CONFIG.FRONT_RANGE; i++) {
+      const recentRate = frontCounter[i] / recentLength;
+      const overallRate = (allFront[String(i)] || allFront[i] || 0) / totalDraws;
+      frontMomentum[i] = recentRate - overallRate;
+    }
+
+    for (let i = 1; i <= CONFIG.BACK_RANGE; i++) {
+      const recentRate = backCounter[i] / recentLength;
+      const overallRate = (allBack[String(i)] || allBack[i] || 0) / totalDraws;
+      backMomentum[i] = recentRate - overallRate;
+    }
+
+    const result = {
+      front: frontCounter,
+      back: backCounter,
+      frontMomentum,
+      backMomentum,
+      recentCount: recentLength,
+      totalDraws
+    };
+
+    this.recentCache = result;
+    return result;
   }
 }

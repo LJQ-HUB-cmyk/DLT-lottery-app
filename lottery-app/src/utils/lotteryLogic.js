@@ -2056,7 +2056,19 @@ class LotteryAnalyzer {
    *    - 位置偏好分（5%）- 号码在历史中的位置偏好
    * 3. 动态调整 - 回补效应、防过热机制
    */
-  generateZoneFrequencyPrediction() {
+  /**
+   * 区间频率分析v2 - 多因子综合评分模型
+   * 
+   * 核心思路：
+   * 1. 将前区分7区、后区分2区
+   * 2. 选择最热的4个前区区间
+   * 3. 对每个区间的号码进行6维度评分
+   * 4. 从每个热区间选择最高分号码
+   * 
+   * @param {number} seed - 随机种子（可选），用于生成不同的结果
+   * @returns {number[]} 扁平数组 [...front, ...back]
+   */
+  generateZoneFrequencyPrediction(seed = null) {
     console.log('🔍 区间频率分析v2 - 多因子综合评分模型');
     
     const [frontCounter, backCounter] = this.analyzeFrequency();
@@ -2199,8 +2211,15 @@ class LotteryAnalyzer {
       // 按总分排序
       scoredNumbers.sort((a, b) => parseFloat(b.scores.total) - parseFloat(a.scores.total));
       
-      // 选择最高分的号码
-      const bestNumber = scoredNumbers[0];
+      // 引入随机性：根据seed选择前N名中的一个
+      let selectedIndex = 0;
+      if (seed !== null && scoredNumbers.length > 1) {
+        // 从前3名中随机选择一个（增加多样性）
+        const topN = Math.min(3, scoredNumbers.length);
+        selectedIndex = (seed + zoneIdx) % topN;
+      }
+      
+      const bestNumber = scoredNumbers[selectedIndex];
       frontNumbers.push(bestNumber.number);
       
       console.log(`  ${zone.name}:`, {
@@ -2215,21 +2234,30 @@ class LotteryAnalyzer {
       });
     });
     
-    // ==================== 第五步：后区选择（简化版）====================
+    // ==================== 第五步：后区选择（引入随机性）====================
     const backNumbers = [];
-    backZones.forEach(zone => {
-      let bestNum = zone.start;
-      let bestFreq = 0;
-      
+    backZones.forEach((zone, idx) => {
+      // 收集该区间所有号码及其频率
+      const zoneCandidates = [];
       for (let i = zone.start; i <= zone.end; i++) {
         const freq = backCounter[String(i)] || backCounter[i] || 0;
-        if (freq > bestFreq) {
-          bestFreq = freq;
-          bestNum = i;
-        }
+        zoneCandidates.push({ number: i, freq });
       }
       
-      backNumbers.push(bestNum);
+      // 按频率排序
+      zoneCandidates.sort((a, b) => b.freq - a.freq);
+      
+      // 引入随机性：从前2名中选择一个
+      let selectedCandidate;
+      if (seed !== null && zoneCandidates.length > 1) {
+        const topN = Math.min(2, zoneCandidates.length);
+        const selectIdx = (seed + idx) % topN;
+        selectedCandidate = zoneCandidates[selectIdx];
+      } else {
+        selectedCandidate = zoneCandidates[0];
+      }
+      
+      backNumbers.push(selectedCandidate.number);
     });
     
     // 确保前区有5个号码
@@ -2239,7 +2267,7 @@ class LotteryAnalyzer {
       const missing = allNumbers.filter(n => !frontNumbers.includes(n));
       if (missing.length > 0) {
         // 随机补充
-        const randomIdx = Math.floor(Math.random() * missing.length);
+        const randomIdx = seed !== null ? (seed + frontNumbers.length) % missing.length : Math.floor(Math.random() * missing.length);
         frontNumbers.push(missing[randomIdx]);
       } else {
         break;
@@ -2251,7 +2279,7 @@ class LotteryAnalyzer {
       const allNumbers = Array.from({length: 12}, (_, i) => i + 1);
       const missing = allNumbers.filter(n => !backNumbers.includes(n));
       if (missing.length > 0) {
-        const randomIdx = Math.floor(Math.random() * missing.length);
+        const randomIdx = seed !== null ? (seed + backNumbers.length) % missing.length : Math.floor(Math.random() * missing.length);
         backNumbers.push(missing[randomIdx]);
       } else {
         break;
@@ -3253,7 +3281,7 @@ class LotteryAnalyzer {
     // 生成区间频率分析预测（多次采样）
     const zoneFrequencyPredictions = [];
     for (let i = 0; i < SAMPLE_COUNT.zone_frequency; i++) {
-      const pred = this.generateZoneFrequencyPrediction();
+      const pred = this.generateZoneFrequencyPrediction(i);  // 传入seed参数增加多样性
       zoneFrequencyPredictions.push({
         front: pred.slice(0, 5),
         back: pred.slice(5)

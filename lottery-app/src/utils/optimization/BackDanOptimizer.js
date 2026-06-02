@@ -37,8 +37,15 @@ export class BackDanOptimizer {
       timeWeights[i] = maxBackTimeWeight > 0 ? (rawTimeWeights.back[i] || 0) / maxBackTimeWeight : 0;
     }
     
-    // 5. 计算每个号码的综合得分
-    // 评分体系：5维度均衡，每维度满分25分，总分100分
+    // 5. 预计算区间形态数据（维度5需要）
+    const firstHalfFreq = Array.from({ length: 6 }, (_, i) => i + 1)
+      .reduce((sum, n) => sum + (backCounter[String(n)] || backCounter[n] || 0), 0);
+    const secondHalfFreq = Array.from({ length: 6 }, (_, i) => i + 7)
+      .reduce((sum, n) => sum + (backCounter[String(n)] || backCounter[n] || 0), 0);
+    const totalFreq = firstHalfFreq + secondHalfFreq;
+
+    // 6. 计算每个号码的综合得分
+    // 评分体系：5维度均衡， 条件概率30 + 遗漏偏离度20 + 频率+动量15 + 时间衰减15 + 形态适应20 = 总分100分
     const scored = [];
     for (let num = 1; num <= CONFIG.BACK_RANGE; num++) {
       let score = 0;
@@ -46,17 +53,24 @@ export class BackDanOptimizer {
       // 预先计算频率（维度2和维度3都需要）
       const freq = backCounter[String(num)] || backCounter[num] || 0;
       
-      // 维度1: 条件概率得分（25分满分）
+      // 维度1: 条件概率得分（30分满分）- 归一化，提升为主导维度
       const condProb = conditionalProb.back[num] || 0;
       const maxCondProb = Math.max(...Object.values(conditionalProb.back));
       const normalizedCondProb = maxCondProb > 0 ? condProb / maxCondProb : 0;
-      score += normalizedCondProb * 25;
+      score += normalizedCondProb * 30;
             
-      // 维度2: 遗漏/趋势评分（25分满分）- 热号策略奖励低遗漏，均衡/保守策略奖励遗漏回归
+      // 维度2: 遗漏偏离度评分（20分满分）- 偏离度而非偏向回归
       const currentOmission = omissionData.back[num] || 0;
       const omissionDeviation = currentOmission - avgBackOmission;
+      const absDeviation = Math.abs(omissionDeviation);
+      // 偏离度基础分：归一化到全局最大绝对偏离（10分满分）
+      const maxAbsDeviation = Math.max(
+        ...Object.values(omissionData.back).map(o => Math.abs((o || 0) - avgBackOmission))
+      );
+      const normalizedAbsDeviation = maxAbsDeviation > 0 ? absDeviation / maxAbsDeviation : 0;
+      score += normalizedAbsDeviation * 10;
+      // 策略加成（10分）：热号偏向低遗漏，均衡/保守偏向高遗漏
       if (strategy === 'hot') {
-        // 热号策略：奖励低遗漏（近期频繁出现的热号）
         if (omissionDeviation < 0) {
           const maxNegDeviation = Math.max(
             ...Object.values(omissionData.back)
@@ -64,54 +78,48 @@ export class BackDanOptimizer {
               .filter(d => d < 0)
               .map(d => Math.abs(d))
           );
-          const normalizedHotness = maxNegDeviation > 0
-            ? Math.abs(omissionDeviation) / maxNegDeviation : 0;
-          score += normalizedHotness * 25;
+          const hotness = maxNegDeviation > 0 ? Math.abs(omissionDeviation) / maxNegDeviation : 0;
+          score += hotness * 10;
         }
       } else {
-        // 均衡/保守策略：遗漏回归逻辑
         if (omissionDeviation > 0) {
-          const maxDeviation = Math.max(...Object.values(omissionData.back).map(o => (o || 0) - avgBackOmission).filter(d => d > 0));
-          const normalizedDeviation = maxDeviation > 0 ? omissionDeviation / maxDeviation : 0;
-          let omissionScore = normalizedDeviation * 20; // 基础回归
+          const maxPosDeviation = Math.max(...Object.values(omissionData.back).map(o => (o || 0) - avgBackOmission).filter(d => d > 0));
+          const posNormalized = maxPosDeviation > 0 ? omissionDeviation / maxPosDeviation : 0;
+          let strategyBonus = posNormalized * 7;
           if (omissionDeviation > omissionStd * 2) {
-            omissionScore += 5; // 超过2倍标准差额外加分
+            strategyBonus += 3;
           }
-          // 频率惩罚：如果该号码历史频率低于平均（如11、12），降低遗漏回归得分
+          // 频率惩罚：低频号码(11、12)的遗漏回归得分打折
           const totalBackFreq = Object.values(backCounter).reduce((sum, f) => sum + f, 0);
           const globalFreqRatio = totalBackFreq > 0 ? freq / totalBackFreq : 0;
           const avgFreqRatio = 1 / CONFIG.BACK_RANGE;
           if (globalFreqRatio < avgFreqRatio) {
-            const freqPenalty = globalFreqRatio / avgFreqRatio;
-            omissionScore *= freqPenalty;
+            strategyBonus *= globalFreqRatio / avgFreqRatio;
           }
-          score += omissionScore;
+          score += strategyBonus;
         }
       }
             
-      // 维度3: 频率得分（20分满分）- 归一化 + 近期趋势动量加成
-      const freqBase = maxFreq > 0 ? (freq / maxFreq) * 15 : 0; // 基础频率 15分
+      // 维度3: 频率+动量得分（15分满分）- 降低权重减少与遗漏抵消
+      const freqBase = maxFreq > 0 ? (freq / maxFreq) * 10 : 0; // 基础频率 10分
       const momentum = recentFreq.backMomentum[num] || 0;
-      const maxMomentum = Math.max(...Object.values(recentFreq.backMomentum).map(m => Math.abs(m)));
+      const maxMomentum = Math.max(...Object.values(recentFreq.backMomentum).map(m => Math.abs(m))); 
       const normalizedMomentum = maxMomentum > 0 ? momentum / maxMomentum : 0;
-      score += freqBase + Math.max(0, normalizedMomentum) * 5;
+      score += freqBase + Math.max(0, normalizedMomentum) * 5; // 动量 5分
             
       // 维度4: 时间衰减得分（15分满分）- 已归一化
       const timeWeight = timeWeights[num] || 0;
       score += timeWeight * 15;
             
-      // 维度5: 频率趋势加分（15分满分）
-      // 后区1-12号码历史分布天然不均匀（1-10占85%，11-12仅15%）
-      // 不再强行"均衡"，而是让频率高的号码自然得分更高
-      // 计算所有后区号码的总频率
-      const totalBackFreq = Object.values(backCounter).reduce((sum, f) => sum + f, 0);
-      const globalFreqRatio = totalBackFreq > 0 ? freq / totalBackFreq : 0;
-      const avgFreqRatio = 1 / CONFIG.BACK_RANGE; // 理论平均 1/12
-      // 如果该号码频率高于平均，给予加分
-      if (globalFreqRatio > avgFreqRatio) {
-        const excess = (globalFreqRatio - avgFreqRatio) / avgFreqRatio; // 超出比例
-        score += Math.min(excess * 30, 15); // 最高15分
-      }
+      // 维度5: 区间形态适应性（20分满分）- 提升权重
+      // 后区1-6/7-12天然分布不均匀， 形态适应自然分布的号码得分更高
+      const isFirstHalf = num <= 6;
+      const halfFreqRatio = totalFreq > 0 ? firstHalfFreq / totalFreq : 0.5;
+      // 形态适应加成: 号码所属区间的实际频率占比越高于理论均值(0.5)越多 → 形态匹配越好
+      const morphologyBonus = isFirstHalf
+        ? Math.min((halfFreqRatio - 0.5) * 30, 20)
+        : Math.min((1 - halfFreqRatio) * 30, 20);
+      score += morphologyBonus;
       
       scored.push({
         number: num,

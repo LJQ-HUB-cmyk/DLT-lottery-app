@@ -88,7 +88,8 @@ export class DanTuoOptimizer {
 
     console.log('  区间频率:', zoneFrequencies);
 
-    // 计算每个候选拖码的综合评分（7维度）
+    // 计算每个候选拖码的综合评分（8维度）
+    // 权重体系：频率+动量15 + 区间分布20 + 条件概率25 + 遗漏偏离度15 + 关联性10 + 协同性10 + 历史相似度5 + 间距模式5 = 100
     // 获取条件概率和遗漏数据
     const conditionalProb = this.conditionalProbability.calculateConditionalProbability();
     const omission = this.omissionCalculator.calculateOmission();
@@ -125,11 +126,11 @@ export class DanTuoOptimizer {
       const zone = getZone(tuoNum);
       let score = 0;
 
-      // 1. 基础频率分（15分满分）- 归一化 + 近期趋势动量（5分）
+      // 1. 频率+动量得分（15分满分）- 降低权重减少与遗漏抵消
       const freq = frontCounter[String(tuoNum)] || frontCounter[tuoNum] || 0;
-      const freqBase = maxFreq > 0 ? (freq / maxFreq) * 15 : 0;
+      const freqBase = maxFreq > 0 ? (freq / maxFreq) * 10 : 0;
       const momentum = recentFreq.frontMomentum[tuoNum] || 0;
-      const maxMomentum = Math.max(...Object.values(recentFreq.frontMomentum).map(m => Math.abs(m)));
+      const maxMomentum = Math.max(...Object.values(recentFreq.frontMomentum).map(m => Math.abs(m))); 
       const normalizedMomentum = maxMomentum > 0 ? momentum / maxMomentum : 0;
       score += freqBase + Math.max(0, normalizedMomentum) * 5;
 
@@ -147,16 +148,23 @@ export class DanTuoOptimizer {
         score += 8 - danInThisZone * 2;
       }
 
-      // 3. 条件概率加成（20分满分）- 归一化
+      // 3. 条件概率加成（25分满分）- 归一化，提升为主导维度
       const condProb = conditionalProb.front[tuoNum] || 0;
       const normalizedCondProb = maxCondProb > 0 ? condProb / maxCondProb : 0;
-      score += normalizedCondProb * 20;
+      score += normalizedCondProb * 25;
 
-      // 4. 遗漏/趋势评分（15分满分）- 热号策略奖励低遗漏，均衡/保守策略奖励高遗漏回归
+      // 4. 遗漏偏离度评分（15分满分）- 偏离度而非偏向回归
+      // 偏离度基础分：遗漏偏离均值越远=信号越强（无论高低）=得分越高
       const currentOmission = omission.front[tuoNum] || 0;
       const omissionDeviation = currentOmission - avgFrontOmission;
+      const absOmissionDeviation = Math.abs(omissionDeviation);
+      const maxAbsDeviation = Math.max(
+        ...Object.values(omission.front).map(o => Math.abs((o || 0) - avgFrontOmission))
+      );
+      const normalizedAbsDeviation = maxAbsDeviation > 0 ? absOmissionDeviation / maxAbsDeviation : 0;
+      score += normalizedAbsDeviation * 5; // 偏离度基础分5分
+      // 策略加成（10分）：热号偏向低遗漏，均衡/保守偏向高遗漏
       if (strategy === 'hot') {
-        // 热号策略：奖励低遗漏（近期频繁出现的热号）
         if (omissionDeviation < 0) {
           const maxNegDeviation = Math.max(
             ...Object.values(omission.front)
@@ -164,22 +172,20 @@ export class DanTuoOptimizer {
               .filter(d => d < 0)
               .map(d => Math.abs(d))
           );
-          const normalizedHotness = maxNegDeviation > 0
-            ? Math.abs(omissionDeviation) / maxNegDeviation : 0;
-          score += normalizedHotness * 15;
+          const hotness = maxNegDeviation > 0 ? Math.abs(omissionDeviation) / maxNegDeviation : 0;
+          score += hotness * 10;
         }
       } else {
-        // 均衡/保守策略：遗漏回归逻辑
         if (omissionDeviation > 0 && maxPositiveDeviation > 0) {
-          score += (omissionDeviation / maxPositiveDeviation) * 10;
-          if (omissionDeviation > omissionStd * 2) score += 5;
+          score += (omissionDeviation / maxPositiveDeviation) * 7;
+          if (omissionDeviation > omissionStd * 2) score += 3;
         }
       }
 
-      // 5. 关联性加成（15分满分）- 归一化
+      // 5. 关联性加成（10分满分）- 归一化
       const rawCorr = rawCorrelationScores.find(s => s.number === tuoNum)?.corr || 0;
       const normalizedCorr = maxCorr > 0 ? rawCorr / maxCorr : 0;
-      score += normalizedCorr * 15;
+      score += normalizedCorr * 10;
 
       // 6. 协同评分加成（10分满分）- 与胆码的和值/跨度/奇偶协调性
       // 和值协调：拖码加入后使总和接近历史均值
@@ -218,12 +224,22 @@ export class DanTuoOptimizer {
       score += spanBonus;
 
       // 7. 历史形态相似度加成（5分满分）- 归一化
-      // 号码出现在与当前组合形态相似的历史记录中，加分
       const historyData = this.getActiveData();
       const similarityBonus = HistoricalSimilarity.computeNumberSimilarityBonus(
         tuoNum, true, danNumbers, [], historyData
       );
       score += similarityBonus * 5;
+
+      // 8. 号码间距模式加成（5分满分）- 独立性维度
+      // 基于拖码与胆码之间差值的分布模式，与频率/遗漏/关联性低相关
+      // 计算拖码与每个胆码的间距，检查是否符合历史常见的间距分布
+      const gapsWithDan = danNumbers.map(dan => Math.abs(tuoNum - dan));
+      // 历史前区5个号码的平均间距约7-8，每对号码的间距分布有规律
+      // 间距在3-12范围内的号码更可能出现在合理的组合中
+      const reasonableGapCount = gapsWithDan.filter(g => g >= 3 && g <= 12).length;
+      // 与胆码的间距越合理（3-12范围），得分越高
+      const gapScore = danNumbers.length > 0 ? (reasonableGapCount / danNumbers.length) * 5 : 2.5;
+      score += gapScore;
 
       return {
         number: tuoNum,
@@ -233,7 +249,8 @@ export class DanTuoOptimizer {
         condProb,
         omission: currentOmission,
         corrBonus: rawCorr,
-        similarityBonus
+        similarityBonus,
+        gapScore
       };
     });
 
@@ -497,27 +514,99 @@ export class DanTuoOptimizer {
 
   /**
    * 普通拖码优化（不带区间频率）
+   * 降级版本：5维度评分体系（频率+条件概率+遗漏+搭档+区间分布）
    * @param {number[]} danNumbers - 胆码数组
    * @param {number[]} candidateNumbers - 候选拖码数组
    * @param {number} targetCount - 目标数量
    * @returns {number[]} 优化后的拖码数组
    */
   optimizeTuoSelection(danNumbers, candidateNumbers, targetCount = 10) {
-    // 简化版本：基于频率和搭档关系
+    // 5维度评分体系，与主方法保持维度一致性
     const [frontCounter] = this.frequencyAnalyzer.analyzeFrequency();
+    const maxFreq = Math.max(...Object.values(frontCounter));
     const pairBonus = this.calculatePairBonus(danNumbers, candidateNumbers);
-
-    const scored = candidateNumbers.map(num => {
-      const freq = frontCounter[String(num)] || frontCounter[num] || 0;
-      const bonus = pairBonus[num] || 0;
-      return {
-        number: num,
-        score: freq + bonus
-      };
+    const maxPairBonus = Math.max(...Object.values(pairBonus), 1);
+  
+    // 获取条件概率和遗漏数据
+    const conditionalProb = this.conditionalProbability.calculateConditionalProbability();
+    const maxCondProb = Math.max(...Object.values(conditionalProb.front));
+    const omission = this.omissionCalculator.calculateOmission();
+    const avgFrontOmission = this.omissionCalculator.getAverageOmission('front');
+  
+    // 区间定义（7区间，与主方法一致）
+    const getZone = (num) => {
+      if (num <= 5) return 1;
+      if (num <= 10) return 2;
+      if (num <= 15) return 3;
+      if (num <= 20) return 4;
+      if (num <= 25) return 5;
+      if (num <= 30) return 6;
+      return 7;
+    };
+    // 计算胆码区间分布
+    const danZoneCount = {};
+    danNumbers.forEach(num => {
+      const zone = getZone(num);
+      danZoneCount[zone] = (danZoneCount[zone] || 0) + 1;
     });
-
+    // 计算区间频率排名
+    const zoneFrequencies = {};
+    for (let zone = 1; zone <= 7; zone++) {
+      const start = (zone - 1) * 5 + 1;
+      const end = zone * 5;
+      let totalFreq = 0;
+      for (let i = start; i <= end; i++) {
+        totalFreq += frontCounter[String(i)] || frontCounter[i] || 0;
+      }
+      zoneFrequencies[zone] = totalFreq;
+    }
+  
+    const scored = candidateNumbers.map(num => {
+      let score = 0;
+      const zone = getZone(num);
+  
+      // 维度1: 频率得分（20分满分）- 归一化
+      const freq = frontCounter[String(num)] || frontCounter[num] || 0;
+      score += maxFreq > 0 ? (freq / maxFreq) * 20 : 0;
+  
+      // 维度2: 条件概率得分（20分满分）- 归一化
+      const condProb = conditionalProb.front[num] || 0;
+      const normalizedCondProb = maxCondProb > 0 ? condProb / maxCondProb : 0;
+      score += normalizedCondProb * 20;
+  
+      // 维度3: 遗漏回归得分（20分满分）- 归一化
+      const currentOmission = omission.front[num] || 0;
+      const omissionDeviation = currentOmission - avgFrontOmission;
+      const maxPositiveDeviation = Math.max(
+        ...Object.values(omission.front).map(o => (o || 0) - avgFrontOmission).filter(d => d > 0)
+      );
+      if (omissionDeviation > 0 && maxPositiveDeviation > 0) {
+        score += (omissionDeviation / maxPositiveDeviation) * 20;
+      }
+  
+      // 维度4: 搭档关系得分（20分满分）- 归一化
+      const bonus = pairBonus[num] || 0;
+      score += (bonus / maxPairBonus) * 20;
+  
+      // 维度5: 区间分布得分（20分满分）
+      // 胆码未覆盖的高频区加分
+      const danInThisZone = danZoneCount[zone] || 0;
+      const zoneFreqRank = Object.entries(zoneFrequencies)
+        .sort((a, b) => b[1] - a[1])
+        .findIndex(([z]) => parseInt(z) === zone);
+      if (danInThisZone === 0) {
+        if (zoneFreqRank < 4) score += 20;
+        else if (zoneFreqRank < 6) score += 12;
+        else score += 6;
+      } else {
+        score += 8 - danInThisZone * 2;
+      }
+  
+      return { number: num, score };
+    });
+  
     scored.sort((a, b) => b.score - a.score);
-
+  
     // 按数字大小排序后返回
     return scored.slice(0, targetCount).map(item => item.number).sort((a, b) => a - b);
   }

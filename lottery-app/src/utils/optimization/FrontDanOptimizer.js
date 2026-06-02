@@ -80,51 +80,52 @@ export class FrontDanOptimizer {
       let score = 0;
       const zone = getZone(num);
       
-      // 维度1: 条件概率得分（25分满分）- 归一化
+      // 维度1: 条件概率得分（30分满分）- 归一化，提升为最主导维度
       const condProb = conditionalProb.front[num] || 0;
       const normalizedCondProb = maxCondProb > 0 ? condProb / maxCondProb : 0;
-      score += normalizedCondProb * 25;
+      score += normalizedCondProb * 30;
       
-      // 维度2: 遗漏/趋势评分（25分满分）- 策略差异化
+      // 维度2: 遗漏偏离度评分（20分满分）- 偏离度而非偏向回归
+      // 遗漏偏离均值越远（无论高还是低）= 信号越强 = 得分越高
+      // 策略差异化仍保留：热号偏向低遗漏，均衡/保守偏向高遗漏
       const currentOmission = omissionData.front[num] || 0;
       const omissionDeviation = currentOmission - avgFrontOmission;
+      const absDeviation = Math.abs(omissionDeviation);
+      // 偏离度基础分：归一化到全局最大绝对偏离（10分满分）
+      const maxAbsDeviation = Math.max(
+        ...Object.values(omissionData.front).map(o => Math.abs((o || 0) - avgFrontOmission))
+      );
+      const normalizedDeviation = maxAbsDeviation > 0 ? absDeviation / maxAbsDeviation : 0;
+      score += normalizedDeviation * 10;
+      // 策略加成（10分）：热号偏向低遗漏，均衡/保守偏向高遗漏
       if (strategy === 'hot') {
-        // 热号策略：奖励低遗漏（近期频繁出现的热号），惩罚高遗漏（冷号）
-        // 遗漏越低 = 近期越热 = 得分越高
         if (omissionDeviation < 0) {
-          // 遗漏低于均值 → 近期频繁出现 → 热号加分
-          const maxNegativeDeviation = Math.max(
+          const maxNegDeviation = Math.max(
             ...Object.values(omissionData.front)
               .map(o => (o || 0) - avgFrontOmission)
               .filter(d => d < 0)
               .map(d => Math.abs(d))
           );
-          const normalizedHotness = maxNegativeDeviation > 0
-            ? Math.abs(omissionDeviation) / maxNegativeDeviation : 0;
-          score += normalizedHotness * 25;
+          const hotness = maxNegDeviation > 0 ? Math.abs(omissionDeviation) / maxNegDeviation : 0;
+          score += hotness * 10;
         }
-        // 高遗漏号码不加分（冷号在热号策略中不应被选中）
       } else {
-        // 均衡/保守策略：遗漏回归逻辑（长期没出的号码即将回归）
         if (omissionDeviation > 0) {
-          const normalizedDeviation = maxOmissionDeviation > 0 
-            ? omissionDeviation / maxOmissionDeviation : 0;
-          score += normalizedDeviation * 20;
+          const posNormalized = maxOmissionDeviation > 0 ? omissionDeviation / maxOmissionDeviation : 0;
+          score += posNormalized * 7;
           if (omissionDeviation > omissionStd * 2) {
-            score += 5; // 超过2倍标准差额外加分
+            score += 3;
           }
         }
       }
       
-      // 维度3: 频率得分（20分满分）- 归一化 + 近期趋势动量加成
+      // 维度3: 频率+动量得分（15分满分）- 降低权重减少与遗漏抵消
       const freq = frontCounter[String(num)] || frontCounter[num] || 0;
-      const freqBase = maxFreq > 0 ? (freq / maxFreq) * 15 : 0; // 基础频率 15分
-      // 近期趋势动量：正值（上升趋势）加分，负值（下降趋势）不加分
+      const freqBase = maxFreq > 0 ? (freq / maxFreq) * 10 : 0; // 基础频率 10分
       const momentum = recentFreq.frontMomentum[num] || 0;
       const maxMomentum = Math.max(...Object.values(recentFreq.frontMomentum).map(m => Math.abs(m)));
       const normalizedMomentum = maxMomentum > 0 ? momentum / maxMomentum : 0;
-      // 上升趋势的号码额外获得5分动量加分
-      score += freqBase + Math.max(0, normalizedMomentum) * 5;
+      score += freqBase + Math.max(0, normalizedMomentum) * 5; // 动量 5分
       
       // 维度4: 时间衰减得分（15分满分）- 归一化
       const rawTimeWeight = rawTimeWeights.front[num] || 0;
@@ -132,17 +133,21 @@ export class FrontDanOptimizer {
         ? rawTimeWeight / maxFrontTimeWeight : 0;
       score += normalizedTimeWeight * 15;
       
-      // 维度5: 区间分布均衡（15分满分）- 热号策略跳过，让趋势自然决定分布
+      // 维度5: 区间结构性加分（20分满分）- 提升权重，引入结构性信号
+      // 热号策略跳过，让趋势自然决定分布
       if (strategy !== 'hot') {
         // 号码属于频率较低的区，给予均衡补偿加分
+        // 归一化补偿：偏差比例 * 45，但严格限制不超过20分满分
         const idealRatio = 0.33;
+        let zoneBonus = 0;
         if (zone === 1 && zone1Ratio < idealRatio) {
-          score += Math.abs(idealRatio - zone1Ratio) * 45;
+          zoneBonus = Math.abs(idealRatio - zone1Ratio) * 45;
         } else if (zone === 2 && zone2Ratio < idealRatio) {
-          score += Math.abs(idealRatio - zone2Ratio) * 45;
+          zoneBonus = Math.abs(idealRatio - zone2Ratio) * 45;
         } else if (zone === 3 && zone3Ratio < idealRatio) {
-          score += Math.abs(idealRatio - zone3Ratio) * 45;
+          zoneBonus = Math.abs(idealRatio - zone3Ratio) * 45;
         }
+        score += Math.min(zoneBonus, 20); // 严格限制不超过维度满分
       }
       
       scored.push({

@@ -10,6 +10,87 @@ import AuthGuard from './components/AuthGuard';
 import DataVisualization from './components/DataVisualization';
 import './App.css';
 
+// 辅助模型推荐卡片组件（可展开/收起）
+function ModelRecommendationCard({ rec, info, formatNums }) {
+  const [expanded, setExpanded] = useState(false);
+  const borderColors = { bayesian: '#9b59b6', normal: '#3498db', zhouyi: '#e67e22' };
+  const modelKey = info.name === '贝叶斯动态' ? 'bayesian' : info.name === '正态分布' ? 'normal' : 'zhouyi';
+  const borderColor = borderColors[modelKey] || '#9b59b6';
+
+  // 计算下次开奖具体日期
+  const nextDrawDateStr = (() => {
+    const dayNames = { 1: '周一', 3: '周三', 6: '周六' };
+    const now = new Date();
+    const weekday = now.getDay();
+    const drawDays = [1, 3, 6];
+    let minDiff = 7, nextDrawDay = 1;
+    for (const d of drawDays) {
+      let diff = d - weekday;
+      if (diff <= 0) diff += 7;
+      if (diff === 0 && now.getHours() >= 20) diff = 7;
+      if (diff < minDiff) { minDiff = diff; nextDrawDay = d; }
+    }
+    const nextDate = new Date(now);
+    nextDate.setDate(nextDate.getDate() + minDiff);
+    const y = nextDate.getFullYear();
+    const m = String(nextDate.getMonth() + 1).padStart(2, '0');
+    const d = String(nextDate.getDate()).padStart(2, '0');
+    return `${y}/${m}/${d}（${dayNames[nextDrawDay]}）`;
+  })();
+
+  return (
+    <div className="back-recommendation" style={{marginBottom: '8px', borderLeft: `3px solid ${borderColor}`}}>
+      <div className="back-rec-header">
+        <span className="back-rec-icon">{info.icon}</span>
+        <span className="back-rec-title" style={{color: borderColor}}>{info.name}模型</span>
+        <button 
+          className="expand-btn" 
+          onClick={() => setExpanded(!expanded)}
+          style={{
+            marginLeft: 'auto', padding: '0 8px', fontSize: '0.8em',
+            background: 'transparent', border: 'none',
+            cursor: 'pointer', color: borderColor, transition: 'opacity 0.2s',
+            fontWeight: '500'
+          }}
+        >
+          {expanded ? '收起' : '点击打开详情'}
+        </button>
+      </div>
+      <div style={{fontSize: '0.75em', color: '#999', marginBottom: '4px', marginLeft: '24px'}}>
+        {nextDrawDateStr}开奖
+      </div>
+      <p className="back-rec-info" style={{fontWeight: '500'}}>
+        前区胆码: <strong>{formatNums(rec.danSelected)}</strong> | 
+        前区拖码: <strong>{formatNums(rec.tuoSelected)}</strong> | 
+        后区: <strong>{rec.back ? formatNums(rec.back.danSelected) + ' + ' + formatNums(rec.back.tuoSelected) : '--'}</strong>
+      </p>
+      {expanded && (
+        <div style={{marginTop: '8px', paddingTop: '8px', borderTop: '1px dashed #eee'}}>
+          <p className="back-rec-info" style={{fontSize: '0.85em', color: '#666', marginBottom: '6px'}}>
+            {rec.description}
+          </p>
+          {info.strengths && info.strengths.length > 0 && (
+            <div style={{fontSize: '0.8em', color: '#27ae60', marginBottom: '2px'}}>
+              ✅ 优势:
+              <ul style={{margin: '4px 0 0 16px', padding: 0}}>
+                {info.strengths.map((s, i) => <li key={i}>{s}</li>)}
+              </ul>
+            </div>
+          )}
+          {info.weaknesses && info.weaknesses.length > 0 && (
+            <div style={{fontSize: '0.8em', color: '#e74c3c'}}>
+              ️ 局限:
+              <ul style={{margin: '4px 0 0 16px', padding: 0}}>
+                {info.weaknesses.map((w, i) => <li key={i}>{w}</li>)}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // 动态导入外部数据文件（如果存在）
 let externalDataPromise = null;
 try {
@@ -147,6 +228,7 @@ function App() {
   const [selectionMode, setSelectionMode] = useState('dan'); // 选择模式: dan-胆码, tuo-拖码
   const [backSelectionMode, setBackSelectionMode] = useState('dan'); // 后区选择模式
   const [copyDanTuoSuccess, setCopyDanTuoSuccess] = useState(false); // 复制成功状态
+  const [modelRecommendations, setModelRecommendations] = useState(null); // 辅助模型推荐结果
 
   // 从数据中获取最后一组（最新一期）号码
   const getLatestDrawFromData = () => {
@@ -928,6 +1010,16 @@ function App() {
         strategy: strategyName,
         description: description
       });
+
+      // 调用3个辅助模型生成推荐
+      try {
+        const danCountForModel = recommendedDan.length;
+        const modelRecs = analyzer.generateModelRecommendations(danCountForModel, tuoCount, strategy);
+        setModelRecommendations(modelRecs);
+        console.log('✅ 辅助模型推荐完成:', modelRecs);
+      } catch (e) {
+        console.warn('⚠️ 辅助模型推荐失败:', e);
+      }
     } catch (error) {
       console.error('推荐失败:', error);
     }
@@ -1581,6 +1673,28 @@ function App() {
                   </p>
                 </div>
               )}
+            </div>
+          )}
+
+          {/* 辅助模型推荐 */}
+          {modelRecommendations && dantuoRecommendation && (
+            <div className="model-recommendations-section">
+              <div className="tip-header">
+                <span className="tip-icon">🧪</span>
+                <span className="tip-title">辅助模型推荐（仅供参考）</span>
+              </div>
+              <p className="tip-description" style={{fontSize: '0.8em', color: '#888', marginBottom: '8px'}}>
+                以下3个模型独立于主推荐算法，各模型基于不同理论，推荐结果仅供参考对比。
+              </p>
+              {['bayesian', 'normal', 'zhouyi'].map(modelKey => {
+                const rec = modelRecommendations[modelKey];
+                if (!rec) return null;
+                const info = rec.modelInfo;
+                const formatNums = (nums) => nums.map(n => n.toString().padStart(2, '0')).join(' ');
+                return (
+                  <ModelRecommendationCard key={modelKey} rec={rec} info={info} formatNums={formatNums} />
+                );
+              })}
             </div>
           )}
 

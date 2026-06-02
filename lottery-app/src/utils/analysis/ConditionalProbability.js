@@ -174,39 +174,77 @@ export class ConditionalProbability {
   }
 
   /**
-   * 计算条件概率的置信度
-   * 基于历史回测：条件概率推荐的高概率号码的实际命中率 vs 随机基线
-   * @param {Object} frontTransition - 前区转移矩阵
-   * @param {Object} backTransition - 后区转移矩阵
+   * 计算条件概率的置信度（无前视偏差版本）
+   * 基于历史回测：每个验证期仅使用该期之前的数据构建转移矩阵
+   * 严格避免数据泄露：验证期本身的数据不参与转移矩阵构建
+   * @param {Object} _frontTransition - 不再使用（已废弃，保留参数兼容性）
+   * @param {Object} _backTransition - 不再使用（已废弃，保留参数兼容性）
    * @param {number} laplaceAlpha - Laplace平滑参数
    * @returns {number} 置信度 0-1
    */
-  calculateConfidence(frontTransition, backTransition, laplaceAlpha) {
+  calculateConfidence(_frontTransition, _backTransition, laplaceAlpha) {
     const activeData = this.getActiveData();
     if (activeData.length < 20) return 0.3;
 
+    const TIME_DECAY = 0.98; // 回测也使用时间衰减
     const testPeriods = Math.min(20, activeData.length - 1);
+    // 回测起始位置，确保每个验证期至少有50期历史数据可用
+    const minHistory = 50;
+    const startTestIdx = Math.max(activeData.length - testPeriods, minHistory);
+
     let frontHits = 0;
     let backHits = 0;
     let frontRandomHits = 0;
     let backRandomHits = 0;
+    let validTestPeriods = 0;
 
     const laplaceProb = (rawCount, rawTotal, numOutcomes) => {
       return (rawCount + laplaceAlpha) / (rawTotal + laplaceAlpha * numOutcomes);
     };
 
-    for (let t = activeData.length - testPeriods; t < activeData.length; t++) {
+    for (let t = startTestIdx; t < activeData.length; t++) {
       const prevDraw = activeData[t - 1];
       const currDraw = activeData[t];
 
-      const tempFrontCond = {};
-      const tempBackCond = {};
+      // 关键修复：仅使用第t期之前的数据构建转移矩阵
+      // 严格排除验证期本身的数据，消除前视偏差
+      const trainData = activeData.slice(0, t);
+      if (trainData.length < 10) continue; // 训练数据不足10期时跳过
+
+      // 为每个验证期独立构建转移矩阵（无前视偏差）
+      const localFrontTransition = {}; 
+      const localBackTransition = {}; 
+
+      for (let i = 1; i < trainData.length; i++) {
+        const trainPrev = trainData[i - 1];
+        const trainCurr = trainData[i];
+        const recencyIndex = trainData.length - i;
+        const timeWeight = Math.pow(TIME_DECAY, recencyIndex);
+
+        for (const prevNum of trainPrev.front) {
+          if (!localFrontTransition[prevNum]) localFrontTransition[prevNum] = {}; 
+          for (const currNum of trainCurr.front) {
+            localFrontTransition[prevNum][currNum] = (localFrontTransition[prevNum][currNum] || 0) + timeWeight;
+          }
+        }
+
+        for (const prevNum of trainPrev.back) {
+          if (!localBackTransition[prevNum]) localBackTransition[prevNum] = {}; 
+          for (const currNum of trainCurr.back) {
+            localBackTransition[prevNum][currNum] = (localBackTransition[prevNum][currNum] || 0) + timeWeight;
+          }
+        }
+      }
+
+      // 使用独立构建的转移矩阵计算条件概率
+      const tempFrontCond = {}; 
+      const tempBackCond = {}; 
 
       for (let y = 1; y <= CONFIG.FRONT_RANGE; y++) {
         let score = 0;
         let wSum = 0;
         for (const x of prevDraw.front) {
-          const tr = frontTransition[x] || {};
+          const tr = localFrontTransition[x] || {}; 
           const rawTotal = Object.values(tr).reduce((a, b) => a + b, 0);
           const rawCount = tr[y] || 0;
           const prob = laplaceProb(rawCount, rawTotal, CONFIG.FRONT_RANGE);
@@ -220,7 +258,7 @@ export class ConditionalProbability {
         let score = 0;
         let wSum = 0;
         for (const x of prevDraw.back) {
-          const tr = backTransition[x] || {};
+          const tr = localBackTransition[x] || {}; 
           const rawTotal = Object.values(tr).reduce((a, b) => a + b, 0);
           const rawCount = tr[y] || 0;
           const prob = laplaceProb(rawCount, rawTotal, CONFIG.BACK_RANGE);
@@ -247,6 +285,7 @@ export class ConditionalProbability {
       // 随机基线期望命中数
       frontRandomHits += CONFIG.FRONT_COUNT * 10 / CONFIG.FRONT_RANGE;
       backRandomHits += CONFIG.BACK_COUNT * 4 / CONFIG.BACK_RANGE;
+      validTestPeriods++; 
     }
 
     // 置信度 = 实际命中率 / 随机命中率（归一化到0-1）
@@ -258,7 +297,7 @@ export class ConditionalProbability {
       : 0.3;
 
     const confidence = frontConfidence * 0.5 + backConfidence * 0.5;
-    console.log(`📊 条件概率置信度: 前区${frontConfidence.toFixed(2)} 后区${backConfidence.toFixed(2)} 综合${confidence.toFixed(2)} (命中率: 前${frontHits}/${frontRandomHits.toFixed(1)} 后${backHits}/${backRandomHits.toFixed(1)})`);
+    console.log(`📊 条件概率置信度(无前视偏差): 前区${frontConfidence.toFixed(2)} 后区${backConfidence.toFixed(2)} 综合${confidence.toFixed(2)} (${validTestPeriods}期回测, 命中率: 前${frontHits}/${frontRandomHits.toFixed(1)} 后${backHits}/${backRandomHits.toFixed(1)})`);
     
     return confidence;
   }

@@ -72,13 +72,21 @@ export class ConfidenceCalculator {
     const [frontCounter] = analyzer.frequencyAnalyzer.analyzeFrequency();
     const omissionData = analyzer.omissionCalculator.calculateOmission();
 
-    // 为每个号码计算4个维度得分
+    // 为每个号码计算4个维度得分（每个维度满分25，保证量级一致）
+    const maxCondProb = Math.max(...Object.values(conditionalProb.front));
+    const maxFreq = Math.max(...Object.values(frontCounter));
+    const maxOmission = Math.max(...Object.values(omissionData.front));
+
     const dimensionScores = selectedNumbers.map(num => {
-      const condProb = (conditionalProb.front[num] || 0) * 25;
-      const freq = (frontCounter[String(num)] || frontCounter[num] || 0) * 15 / Math.max(...Object.values(frontCounter));
-      const omission = (omissionData.front[num] || 0) * 10;
+      const condProb = maxCondProb > 0 ? ((conditionalProb.front[num] || 0) / maxCondProb) * 25 : 0; // 归一化到0-25
+      const freq = maxFreq > 0 ? ((frontCounter[String(num)] || frontCounter[num] || 0) / maxFreq) * 25 : 0; // 归一化到0-25
+      const omission = maxOmission > 0 ? ((omissionData.front[num] || 0) / maxOmission) * 25 : 0; // 归一化到0-25
+      // 奇偶加成: 推荐号码中奇数占比接近2:3或3:2时加分
+      const oddCount = selectedNumbers.filter(n => n % 2 !== 0).length;
       const isOdd = num % 2 !== 0;
-      const parityBonus = isOdd ? 3 : 0; // 奇偶平衡加分
+      const idealOddMin = Math.round(selectedNumbers.length * 0.4);
+      const idealOddMax = Math.round(selectedNumbers.length * 0.6);
+      const parityBonus = (isOdd && oddCount >= idealOddMin && oddCount <= idealOddMax) ? 10 : 5; // 奇偶合理10分， 欏斜5分
       return condProb + freq + omission + parityBonus;
     });
 

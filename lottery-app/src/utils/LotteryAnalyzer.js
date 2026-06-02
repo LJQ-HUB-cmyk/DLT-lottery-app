@@ -16,6 +16,9 @@ import { ConditionalProbability } from './analysis/ConditionalProbability.js';
 import { DanTuoOptimizer } from './optimization/DanTuoOptimizer.js';
 import { BackDanOptimizer } from './optimization/BackDanOptimizer.js';
 import { FrontDanOptimizer } from './optimization/FrontDanOptimizer.js';
+import { BayesianDanTuoModel } from './optimization/BayesianDanTuoModel.js';
+import { NormalDanTuoModel } from './optimization/NormalDanTuoModel.js';
+import { ZhouyiDanTuoModel } from './optimization/ZhouyiDanTuoModel.js';
 
 // 导入所有算法模型
 import { BayesianDynamicModel } from './algorithms/BayesianDynamic.js';
@@ -1162,10 +1165,52 @@ class LotteryAnalyzer {
     if (!this.danTuoOptimizer) {
       throw new Error('胆拖优化器未初始化，请先调用 loadHistoryData()');
     }
-    return this.danTuoOptimizer.optimizeTuoSelection(danNumbers, candidateNumbers, targetCount);
+        return this.danTuoOptimizer.optimizeTuoSelection(danNumbers, candidateNumbers, targetCount);
   }
 
-  // ==================== 多组生成功能 ====================
+  /**
+   * 生成3个辅助模型的胆拖推荐结果
+   * @param {number} danCount - 胆码数量
+   * @param {number} tuoCount - 拖码数量
+   * @param {string} strategy - 策略: hot/balanced/conservative
+   * @returns {Object} { bayesian, normal, zhouyi } 每个模型的推荐结果
+   */
+  generateModelRecommendations(danCount = 3, tuoCount = 10, strategy = 'hot') {
+    if (!this.frequencyAnalyzer) {
+      throw new Error('分析器未初始化，请先调用 loadHistoryData()');
+    }
+
+    const results = {};
+
+    try {
+      results.bayesian = BayesianDanTuoModel.recommendFront(this, danCount, strategy);
+      results.bayesian.back = BayesianDanTuoModel.recommendBack(this, 1);
+      results.bayesian.modelInfo = BayesianDanTuoModel.getDescription();
+    } catch (e) {
+      console.warn('⚠️ 贝叶斯动态胆拖推荐失败:', e);
+      results.bayesian = null;
+    }
+
+    try {
+      results.normal = NormalDanTuoModel.recommendFront(this, danCount, strategy);
+      results.normal.back = NormalDanTuoModel.recommendBack(this, 1);
+      results.normal.modelInfo = NormalDanTuoModel.getDescription();
+    } catch (e) {
+      console.warn('⚠️ 正态分布胆拖推荐失败:', e);
+      results.normal = null;
+    }
+
+    try {
+      results.zhouyi = ZhouyiDanTuoModel.recommendFront(this, danCount, strategy);
+      results.zhouyi.back = ZhouyiDanTuoModel.recommendBack(this, 1);
+      results.zhouyi.modelInfo = ZhouyiDanTuoModel.getDescription();
+    } catch (e) {
+      console.warn('⚠️ 周易时空胆拖推荐失败:', e);
+      results.zhouyi = null;
+    }
+
+    return results;
+  }
 
   /**
    * 生成唯一的多组号码（通用）

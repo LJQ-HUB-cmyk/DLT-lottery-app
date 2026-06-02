@@ -34,9 +34,10 @@ export class DanTuoOptimizer {
    * @param {number[]} danNumbers - 胆码数组
    * @param {number[]} candidateNumbers - 候选拖码数组
    * @param {number} targetCount - 目标拖码数量
+   * @param {string} strategy - 策略：hot/balanced/conservative
    * @returns {number[]} 优化后的拖码数组
    */
-  optimizeTuoSelectionWithZoneFrequency(danNumbers, candidateNumbers, targetCount = 10) {
+  optimizeTuoSelectionWithZoneFrequency(danNumbers, candidateNumbers, targetCount = 10, strategy = 'balanced') {
     console.log(' 方案2：拖码选择优化（融合区间频率）');
 
     // 防御性检查
@@ -151,12 +152,28 @@ export class DanTuoOptimizer {
       const normalizedCondProb = maxCondProb > 0 ? condProb / maxCondProb : 0;
       score += normalizedCondProb * 20;
 
-      // 4. 遗漏回归加成（15分满分）- 归一化
+      // 4. 遗漏/趋势评分（15分满分）- 热号策略奖励低遗漏，均衡/保守策略奖励高遗漏回归
       const currentOmission = omission.front[tuoNum] || 0;
       const omissionDeviation = currentOmission - avgFrontOmission;
-      if (omissionDeviation > 0 && maxPositiveDeviation > 0) {
-        score += (omissionDeviation / maxPositiveDeviation) * 10; // 归一化回归加分
-        if (omissionDeviation > omissionStd * 2) score += 5;
+      if (strategy === 'hot') {
+        // 热号策略：奖励低遗漏（近期频繁出现的热号）
+        if (omissionDeviation < 0) {
+          const maxNegDeviation = Math.max(
+            ...Object.values(omission.front)
+              .map(o => (o || 0) - avgFrontOmission)
+              .filter(d => d < 0)
+              .map(d => Math.abs(d))
+          );
+          const normalizedHotness = maxNegDeviation > 0
+            ? Math.abs(omissionDeviation) / maxNegDeviation : 0;
+          score += normalizedHotness * 15;
+        }
+      } else {
+        // 均衡/保守策略：遗漏回归逻辑
+        if (omissionDeviation > 0 && maxPositiveDeviation > 0) {
+          score += (omissionDeviation / maxPositiveDeviation) * 10;
+          if (omissionDeviation > omissionStd * 2) score += 5;
+        }
       }
 
       // 5. 关联性加成（15分满分）- 归一化
@@ -175,18 +192,20 @@ export class DanTuoOptimizer {
       const sumScore = maxSumDiff > 0 ? Math.max(0, 1 - sumDiff / maxSumDiff) * 4 : 2;
       score += sumScore;
 
-      // 奇偶协调：拖码加入后使奇偶比接近2:3或3:2（5个号码中奇数2或3个）
-      const danOddCount = danNumbers.filter(n => n % 2 !== 0).length;
-      const isOdd = tuoNum % 2 !== 0;
-      const totalWithTuo = danNumbers.length + 1; // 胆码+当前拖码
-      const newOddCount = danOddCount + (isOdd ? 1 : 0);
-      // 理想奇数占比: 2/5=0.4 或 3/5=0.6，即奇数2-3个
-      const idealOddMin = Math.round(totalWithTuo * 0.4);
-      const idealOddMax = Math.round(totalWithTuo * 0.6);
-      if (newOddCount >= idealOddMin && newOddCount <= idealOddMax) {
-        score += 3; // 达到理想奇偶比2:3或3:2
-      } else if (Math.abs(newOddCount - totalWithTuo / 2) <= 1) {
-        score += 1; // 接近理想但未达标
+      // 奇偶协调：热号策略跳过，让趋势自然决定
+      if (strategy !== 'hot') {
+        const danOddCount = danNumbers.filter(n => n % 2 !== 0).length;
+        const isOdd = tuoNum % 2 !== 0;
+        const totalWithTuo = danNumbers.length + 1; // 胆码+当前拖码
+        const newOddCount = danOddCount + (isOdd ? 1 : 0);
+        // 理想奇数占比: 2/5=0.4 或 3/5=0.6，即奇数2-3个
+        const idealOddMin = Math.round(totalWithTuo * 0.4);
+        const idealOddMax = Math.round(totalWithTuo * 0.6);
+        if (newOddCount >= idealOddMin && newOddCount <= idealOddMax) {
+          score += 3; // 达到理想奇偶比2:3或3:2
+        } else if (Math.abs(newOddCount - totalWithTuo / 2) <= 1) {
+          score += 1; // 接近理想但未达标
+        }
       }
 
       // 跨度协调：拖码加入后使号码跨度合理
@@ -241,34 +260,38 @@ export class DanTuoOptimizer {
     const remaining = [...weightedCandidates];
     
     // 动态权重调整函数：根据当前组合不足的维度，提升对应号码的权重
+    // 热号策略：不做奇偶/区间均衡补偿，让趋势自然决定分布
+    // 均衡/保守策略：补充奇偶和区间覆盖
     const adjustDynamicWeight = (candidate, currentDan, currentTuo) => {
       const allSelected = [...currentDan, ...currentTuo];
       let bonus = 1.0; // 基础权重倍率
-      
-      // 1. 奇偶平衡：如果当前组合奇偶偏斜，提升缺失奇偶号码权重
-      const currentOdd = allSelected.filter(n => n % 2 !== 0).length;
-      const currentEven = allSelected.length - currentOdd;
-      const targetSize = 5; // 最终5个号码
-      if (allSelected.length < targetSize) {
-        // 理想2:3或3:2，当前偏斜时需要补充
-        const idealOddMin = Math.round(targetSize * 0.4);
-        const idealOddMax = Math.round(targetSize * 0.6);
-        if (currentOdd < idealOddMin && candidate.number % 2 !== 0) {
-          bonus += 0.5; // 奇数不足时，奇数号码权重+50%
-        } else if (currentEven < idealOddMin && candidate.number % 2 === 0) {
-          bonus += 0.5; // 偶数不足时，偶数号码权重+50%
+          
+      if (strategy !== 'hot') {
+        // 1. 奇偶平衡：如果当前组合奇偶偏斜，提升缺失奇偶号码权重
+        const currentOdd = allSelected.filter(n => n % 2 !== 0).length;
+        const currentEven = allSelected.length - currentOdd;
+        const targetSize = 5; // 最终5个号码
+        if (allSelected.length < targetSize) {
+          // 理想2:3或3:2，当前偏斜时需要补充
+          const idealOddMin = Math.round(targetSize * 0.4);
+          const idealOddMax = Math.round(targetSize * 0.6);
+          if (currentOdd < idealOddMin && candidate.number % 2 !== 0) {
+            bonus += 0.5; // 奇数不足时，奇数号码权重+50%
+          } else if (currentEven < idealOddMin && candidate.number % 2 === 0) {
+            bonus += 0.5; // 偶数不足时，偶数号码权重+50%
+          }
+        }
+            
+        // 2. 区间覆盖：如果当前组合缺失某些区，提升缺区号码权重
+        const coveredZones = new Set(allSelected.map(n => getZone(n)));
+        if (allSelected.length < targetSize && coveredZones.size < 4) {
+          const candidateZone = getZone(candidate.number);
+          if (!coveredZones.has(candidateZone)) {
+            bonus += 0.3; // 缺区的号码权重+30%
+          }
         }
       }
-      
-      // 2. 区间覆盖：如果当前组合缺失某些区，提升缺区号码权重
-      const coveredZones = new Set(allSelected.map(n => getZone(n)));
-      if (allSelected.length < targetSize && coveredZones.size < 4) {
-        const candidateZone = getZone(candidate.number);
-        if (!coveredZones.has(candidateZone)) {
-          bonus += 0.3; // 缺区的号码权重+30%
-        }
-      }
-      
+          
       return candidate.sampleWeight * bonus;
     };
         

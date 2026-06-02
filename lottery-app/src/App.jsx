@@ -727,7 +727,8 @@ function App() {
         optimizedTuo = analyzer.optimizeTuoSelectionWithZoneFrequency(
           optimizedDan, 
           tuoCandidates, 
-          tuoCount
+          tuoCount,
+          strategy
         );
         console.log('✅ 方案2成功：拖码已基于区间频率优化');
       } catch (error) {
@@ -758,7 +759,7 @@ function App() {
             
     // 提取后区推荐逻辑到内部函数，避免代码冗余
     const generateBackRecommendation = (isFullDrag) => {
-      const backDanResult = BackDanOptimizer.optimize(analyzer, 1);
+      const backDanResult = BackDanOptimizer.optimize(analyzer, 1, strategy);
       const recommendedBackDan = backDanResult.selected;
       const backDanProbInfo = backDanResult.probabilityInfo;
           
@@ -771,7 +772,7 @@ function App() {
           .filter(n => !recommendedBackDan.includes(n));
       } else {
         // 智能拖码选择（多维度评分+加权随机采样）
-        const backTuoResult = BackTuoOptimizer.optimize(analyzer, recommendedBackDan, 4);
+        const backTuoResult = BackTuoOptimizer.optimize(analyzer, recommendedBackDan, 4, strategy);
         recommendedBackTuo = backTuoResult.selected;
         backTuoProbInfo = backTuoResult.probabilityInfo;
       }

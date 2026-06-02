@@ -85,15 +85,34 @@ export class FrontDanOptimizer {
       const normalizedCondProb = maxCondProb > 0 ? condProb / maxCondProb : 0;
       score += normalizedCondProb * 25;
       
-      // 维度2: 遗漏回归加成（25分满分）- 归一化
+      // 维度2: 遗漏/趋势评分（25分满分）- 策略差异化
       const currentOmission = omissionData.front[num] || 0;
       const omissionDeviation = currentOmission - avgFrontOmission;
-      if (omissionDeviation > 0) {
-        const normalizedDeviation = maxOmissionDeviation > 0 
-          ? omissionDeviation / maxOmissionDeviation : 0;
-        score += normalizedDeviation * 20;
-        if (omissionDeviation > omissionStd * 2) {
-          score += 5; // 超过2倍标准差额外加分
+      if (strategy === 'hot') {
+        // 热号策略：奖励低遗漏（近期频繁出现的热号），惩罚高遗漏（冷号）
+        // 遗漏越低 = 近期越热 = 得分越高
+        if (omissionDeviation < 0) {
+          // 遗漏低于均值 → 近期频繁出现 → 热号加分
+          const maxNegativeDeviation = Math.max(
+            ...Object.values(omissionData.front)
+              .map(o => (o || 0) - avgFrontOmission)
+              .filter(d => d < 0)
+              .map(d => Math.abs(d))
+          );
+          const normalizedHotness = maxNegativeDeviation > 0
+            ? Math.abs(omissionDeviation) / maxNegativeDeviation : 0;
+          score += normalizedHotness * 25;
+        }
+        // 高遗漏号码不加分（冷号在热号策略中不应被选中）
+      } else {
+        // 均衡/保守策略：遗漏回归逻辑（长期没出的号码即将回归）
+        if (omissionDeviation > 0) {
+          const normalizedDeviation = maxOmissionDeviation > 0 
+            ? omissionDeviation / maxOmissionDeviation : 0;
+          score += normalizedDeviation * 20;
+          if (omissionDeviation > omissionStd * 2) {
+            score += 5; // 超过2倍标准差额外加分
+          }
         }
       }
       
@@ -113,15 +132,17 @@ export class FrontDanOptimizer {
         ? rawTimeWeight / maxFrontTimeWeight : 0;
       score += normalizedTimeWeight * 15;
       
-      // 维度5: 区间分布均衡（15分满分）
-      // 号码属于频率较低的区，给予均衡补偿加分
-      const idealRatio = 0.33;
-      if (zone === 1 && zone1Ratio < idealRatio) {
-        score += Math.abs(idealRatio - zone1Ratio) * 45;
-      } else if (zone === 2 && zone2Ratio < idealRatio) {
-        score += Math.abs(idealRatio - zone2Ratio) * 45;
-      } else if (zone === 3 && zone3Ratio < idealRatio) {
-        score += Math.abs(idealRatio - zone3Ratio) * 45;
+      // 维度5: 区间分布均衡（15分满分）- 热号策略跳过，让趋势自然决定分布
+      if (strategy !== 'hot') {
+        // 号码属于频率较低的区，给予均衡补偿加分
+        const idealRatio = 0.33;
+        if (zone === 1 && zone1Ratio < idealRatio) {
+          score += Math.abs(idealRatio - zone1Ratio) * 45;
+        } else if (zone === 2 && zone2Ratio < idealRatio) {
+          score += Math.abs(idealRatio - zone2Ratio) * 45;
+        } else if (zone === 3 && zone3Ratio < idealRatio) {
+          score += Math.abs(idealRatio - zone3Ratio) * 45;
+        }
       }
       
       scored.push({
@@ -162,83 +183,94 @@ export class FrontDanOptimizer {
       };
     });
     
-    // 加权随机采样选出 danCount 个号码，确保3大区都有覆盖
+    // 加权随机采样选出 danCount 个号码
+    // 热号策略：不做区间覆盖强制，让趋势自然决定分布
+    // 均衡/保守策略：确保3大区都有覆盖
     const selected = [];
     const remaining = [...weights];
     
-    // 第一步：先从每个区各选1个号码（确保区间覆盖）
-    const zone1Candidates = remaining.filter(w => getZone(w.number) === 1);
-    const zone2Candidates = remaining.filter(w => getZone(w.number) === 2);
-    const zone3Candidates = remaining.filter(w => getZone(w.number) === 3);
-    
-    const pickOneFromZone = (zoneCandidates, remList) => {
-      if (zoneCandidates.length === 0) return null;
-      const totalW = zoneCandidates.reduce((sum, w) => sum + w.sampleWeight, 0);
-      let random = Math.random() * totalW;
-      for (const w of zoneCandidates) {
-        random -= w.sampleWeight;
-        if (random <= 0) {
-          remList.splice(remList.findIndex(r => r.number === w.number), 1);
-          return w.number;
+    if (strategy === 'hot') {
+      // 热号策略：纯加权随机采样，不强制区间覆盖
+      while (selected.length < danCount && remaining.length > 0) {
+        const totalW = remaining.reduce((sum, w) => sum + w.sampleWeight, 0);
+        let random = Math.random() * totalW;
+        let chosenIdx = 0;
+        for (let j = 0; j < remaining.length; j++) {
+          random -= remaining[j].sampleWeight;
+          if (random <= 0) { chosenIdx = j; break; }
         }
-      }
-      const chosen = zoneCandidates[0];
-      remList.splice(remList.findIndex(r => r.number === chosen.number), 1);
-      return chosen.number;
-    };
-    
-    // 三区各选1个
-    if (danCount >= 3) {
-      const z1 = pickOneFromZone(zone1Candidates, remaining);
-      const z2 = pickOneFromZone(zone2Candidates, remaining);
-      const z3 = pickOneFromZone(zone3Candidates, remaining);
-      if (z1) selected.push(z1);
-      if (z2) selected.push(z2);
-      if (z3) selected.push(z3);
-    } else if (danCount === 2) {
-      // 2个胆码：选2个区
-      const zones = [zone1Candidates, zone2Candidates, zone3Candidates];
-      const zoneSizes = zones.map(z => z.length);
-      // 优先从号码最多的2个区选
-      const topZones = zones.sort((a, b) => {
-        const totalA = a.reduce((s, w) => s + w.sampleWeight, 0);
-        const totalB = b.reduce((s, w) => s + w.sampleWeight, 0);
-        return totalB - totalA;
-      }).slice(0, 2);
-      for (const zoneC of topZones) {
-        const num = pickOneFromZone(zoneC, remaining);
-        if (num) selected.push(num);
+        selected.push(remaining[chosenIdx].number);
+        remaining.splice(chosenIdx, 1);
       }
     } else {
-      // 1个胆码：直接加权随机
-      const totalW = remaining.reduce((sum, w) => sum + w.sampleWeight, 0);
-      let random = Math.random() * totalW;
-      let chosenIdx = 0;
-      for (let j = 0; j < remaining.length; j++) {
-        random -= remaining[j].sampleWeight;
-        if (random <= 0) { chosenIdx = j; break; }
+      // 均衡/保守策略：确保3大区都有覆盖
+      const zone1Candidates = remaining.filter(w => getZone(w.number) === 1);
+      const zone2Candidates = remaining.filter(w => getZone(w.number) === 2);
+      const zone3Candidates = remaining.filter(w => getZone(w.number) === 3);
+      
+      const pickOneFromZone = (zoneCandidates, remList) => {
+        if (zoneCandidates.length === 0) return null;
+        const totalW = zoneCandidates.reduce((sum, w) => sum + w.sampleWeight, 0);
+        let random = Math.random() * totalW;
+        for (const w of zoneCandidates) {
+          random -= w.sampleWeight;
+          if (random <= 0) {
+            remList.splice(remList.findIndex(r => r.number === w.number), 1);
+            return w.number;
+          }
+        }
+        const chosen = zoneCandidates[0];
+        remList.splice(remList.findIndex(r => r.number === chosen.number), 1);
+        return chosen.number;
+      };
+      
+      if (danCount >= 3) {
+        const z1 = pickOneFromZone(zone1Candidates, remaining);
+        const z2 = pickOneFromZone(zone2Candidates, remaining);
+        const z3 = pickOneFromZone(zone3Candidates, remaining);
+        if (z1) selected.push(z1);
+        if (z2) selected.push(z2);
+        if (z3) selected.push(z3);
+      } else if (danCount === 2) {
+        const zones = [zone1Candidates, zone2Candidates, zone3Candidates];
+        const topZones = zones.sort((a, b) => {
+          const totalA = a.reduce((s, w) => s + w.sampleWeight, 0);
+          const totalB = b.reduce((s, w) => s + w.sampleWeight, 0);
+          return totalB - totalA;
+        }).slice(0, 2);
+        for (const zoneC of topZones) {
+          const num = pickOneFromZone(zoneC, remaining);
+          if (num) selected.push(num);
+        }
+      } else {
+        const totalW = remaining.reduce((sum, w) => sum + w.sampleWeight, 0);
+        let random = Math.random() * totalW;
+        let chosenIdx = 0;
+        for (let j = 0; j < remaining.length; j++) {
+          random -= remaining[j].sampleWeight;
+          if (random <= 0) { chosenIdx = j; break; }
+        }
+        selected.push(remaining[chosenIdx].number);
+        remaining.splice(chosenIdx, 1);
       }
-      selected.push(remaining[chosenIdx].number);
-      remaining.splice(chosenIdx, 1);
+      
+      // 如果还需更多胆码（4个），从剩余号码中加权随机选
+      while (selected.length < danCount && remaining.length > 0) {
+        const totalW = remaining.reduce((sum, w) => sum + w.sampleWeight, 0);
+        let random = Math.random() * totalW;
+        let chosenIdx = 0;
+        for (let j = 0; j < remaining.length; j++) {
+          random -= remaining[j].sampleWeight;
+          if (random <= 0) { chosenIdx = j; break; }
+        }
+        selected.push(remaining[chosenIdx].number);
+        remaining.splice(chosenIdx, 1);
+      }
     }
     
-    // 如果还需更多胆码（4个），从剩余号码中加权随机选
-    while (selected.length < danCount && remaining.length > 0) {
-      const totalW = remaining.reduce((sum, w) => sum + w.sampleWeight, 0);
-      let random = Math.random() * totalW;
-      let chosenIdx = 0;
-      for (let j = 0; j < remaining.length; j++) {
-        random -= remaining[j].sampleWeight;
-        if (random <= 0) { chosenIdx = j; break; }
-      }
-      selected.push(remaining[chosenIdx].number);
-      remaining.splice(chosenIdx, 1);
-    }
-    
-    // 奇偶平衡后处理：确保胆码的奇偶比不过于偏斜
-    // 对于5个号码总数，理想奇偶比为2:3或3:2，即奇数2-3个
-    // 胆码（2-4个）应避免全奇或全偶，以便后续拖码能配合达到2:3或3:2
-    if (danCount >= 2) {
+    // 奇偶平衡后处理：热号策略不做强制，让趋势自然决定
+    // 均衡/保守策略：确保胆码的奇偶比不过于偏斜
+    if (strategy !== 'hot' && danCount >= 2) {
       const selOddCount = selected.filter(n => n % 2 !== 0).length;
       const selEvenCount = selected.length - selOddCount;
       // 如果胆码全奇或全偶，替换一个号码来改善奇偶平衡

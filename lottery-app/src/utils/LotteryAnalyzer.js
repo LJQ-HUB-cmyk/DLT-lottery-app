@@ -1148,11 +1148,11 @@ class LotteryAnalyzer {
   /**
    * 优化拖码选择（融合区间频率）
    */
-  optimizeTuoSelectionWithZoneFrequency(danNumbers, candidateNumbers, targetCount = 10) {
+  optimizeTuoSelectionWithZoneFrequency(danNumbers, candidateNumbers, targetCount = 10, strategy = 'balanced') {
     if (!this.danTuoOptimizer) {
       throw new Error('胆拖优化器未初始化，请先调用 loadHistoryData()');
     }
-    return this.danTuoOptimizer.optimizeTuoSelectionWithZoneFrequency(danNumbers, candidateNumbers, targetCount);
+    return this.danTuoOptimizer.optimizeTuoSelectionWithZoneFrequency(danNumbers, candidateNumbers, targetCount, strategy);
   }
 
   /**

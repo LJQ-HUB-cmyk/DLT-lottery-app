@@ -12,7 +12,7 @@ export class BackDanOptimizer {
    * @param {number} backDanCount - 需要推荐的胆码数量
    * @returns {number[]} 推荐的后区胆码
    */
-  static optimize(analyzer, backDanCount = 1) {
+  static optimize(analyzer, backDanCount = 1, strategy = 'balanced') {
     console.log('🎯 后区胆码智能推荐（多维度评分）');
     
     // 1. 获取条件概率
@@ -52,27 +52,41 @@ export class BackDanOptimizer {
       const normalizedCondProb = maxCondProb > 0 ? condProb / maxCondProb : 0;
       score += normalizedCondProb * 25;
             
-      // 维度2: 遗漏回归加成（25分满分）
+      // 维度2: 遗漏/趋势评分（25分满分）- 热号策略奖励低遗漏，均衡/保守策略奖励遗漏回归
       const currentOmission = omissionData.back[num] || 0;
       const omissionDeviation = currentOmission - avgBackOmission;
-      if (omissionDeviation > 0) {
-        // 遗漏高于均值，归一化到0-25
-        const maxDeviation = Math.max(...Object.values(omissionData.back).map(o => (o || 0) - avgBackOmission).filter(d => d > 0));
-        const normalizedDeviation = maxDeviation > 0 ? omissionDeviation / maxDeviation : 0;
-        let omissionScore = normalizedDeviation * 20; // 基础回归
-        if (omissionDeviation > omissionStd * 2) {
-          omissionScore += 5; // 超过2倍标准差额外加分
+      if (strategy === 'hot') {
+        // 热号策略：奖励低遗漏（近期频繁出现的热号）
+        if (omissionDeviation < 0) {
+          const maxNegDeviation = Math.max(
+            ...Object.values(omissionData.back)
+              .map(o => (o || 0) - avgBackOmission)
+              .filter(d => d < 0)
+              .map(d => Math.abs(d))
+          );
+          const normalizedHotness = maxNegDeviation > 0
+            ? Math.abs(omissionDeviation) / maxNegDeviation : 0;
+          score += normalizedHotness * 25;
         }
-        // 频率惩罚：如果该号码历史频率低于平均（如11、12），降低遗漏回归得分
-        const totalBackFreq = Object.values(backCounter).reduce((sum, f) => sum + f, 0);
-        const globalFreqRatio = totalBackFreq > 0 ? freq / totalBackFreq : 0;
-        const avgFreqRatio = 1 / CONFIG.BACK_RANGE;
-        if (globalFreqRatio < avgFreqRatio) {
-          // 频率低于平均，按低于比例降低遗漏回归得分
-          const freqPenalty = globalFreqRatio / avgFreqRatio; // 0-1之间
-          omissionScore *= freqPenalty;
+      } else {
+        // 均衡/保守策略：遗漏回归逻辑
+        if (omissionDeviation > 0) {
+          const maxDeviation = Math.max(...Object.values(omissionData.back).map(o => (o || 0) - avgBackOmission).filter(d => d > 0));
+          const normalizedDeviation = maxDeviation > 0 ? omissionDeviation / maxDeviation : 0;
+          let omissionScore = normalizedDeviation * 20; // 基础回归
+          if (omissionDeviation > omissionStd * 2) {
+            omissionScore += 5; // 超过2倍标准差额外加分
+          }
+          // 频率惩罚：如果该号码历史频率低于平均（如11、12），降低遗漏回归得分
+          const totalBackFreq = Object.values(backCounter).reduce((sum, f) => sum + f, 0);
+          const globalFreqRatio = totalBackFreq > 0 ? freq / totalBackFreq : 0;
+          const avgFreqRatio = 1 / CONFIG.BACK_RANGE;
+          if (globalFreqRatio < avgFreqRatio) {
+            const freqPenalty = globalFreqRatio / avgFreqRatio;
+            omissionScore *= freqPenalty;
+          }
+          score += omissionScore;
         }
-        score += omissionScore;
       }
             
       // 维度3: 频率得分（20分满分）- 归一化 + 近期趋势动量加成

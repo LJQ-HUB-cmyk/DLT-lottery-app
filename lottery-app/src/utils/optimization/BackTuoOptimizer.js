@@ -14,7 +14,7 @@ export class BackTuoOptimizer {
    * @param {number} tuoCount - 需要推荐的拖码数量
    * @returns {Object} { selected: number[], probabilityInfo: Object[] }
    */
-  static optimize(analyzer, danNumbers, tuoCount = 4) {
+  static optimize(analyzer, danNumbers, tuoCount = 4, strategy = 'balanced') {
     console.log('🎯 后区拖码智能推荐（多维度评分 + 加权随机采样）');
     console.log('  胆码:', danNumbers, '拖码数量:', tuoCount);
 
@@ -88,15 +88,31 @@ export class BackTuoOptimizer {
       const normalizedCondProb = maxCondProb > 0 ? condProb / maxCondProb : 0;
       score += normalizedCondProb * 25;
 
-      // 维度2: 遗漏回归加成（25分满分）- 归一化
+      // 维度2: 遗漏/趋势评分（25分满分）- 热号策略奖励低遗漏，均衡/保守策略奖励遗漏回归
       const currentOmission = omissionData.back[num] || 0;
       const omissionDeviation = currentOmission - avgBackOmission;
-      if (omissionDeviation > 0) {
-        const normalizedDeviation = maxPositiveDeviation > 0
-          ? omissionDeviation / maxPositiveDeviation : 0;
-        score += normalizedDeviation * 20;
-        if (omissionDeviation > omissionStd * 2) {
-          score += 5; // 超过2倍标准差额外加分
+      if (strategy === 'hot') {
+        // 热号策略：奖励低遗漏（近期频繁出现的热号）
+        if (omissionDeviation < 0) {
+          const maxNegDeviation = Math.max(
+            ...Object.values(omissionData.back)
+              .map(o => (o || 0) - avgBackOmission)
+              .filter(d => d < 0)
+              .map(d => Math.abs(d))
+          );
+          const normalizedHotness = maxNegDeviation > 0
+            ? Math.abs(omissionDeviation) / maxNegDeviation : 0;
+          score += normalizedHotness * 25;
+        }
+      } else {
+        // 均衡/保守策略：遗漏回归逻辑
+        if (omissionDeviation > 0) {
+          const normalizedDeviation = maxPositiveDeviation > 0
+            ? omissionDeviation / maxPositiveDeviation : 0;
+          score += normalizedDeviation * 20;
+          if (omissionDeviation > omissionStd * 2) {
+            score += 5; // 超过2倍标准差额外加分
+          }
         }
       }
 
@@ -114,11 +130,13 @@ export class BackTuoOptimizer {
         ? rawTimeWeight / maxBackTimeWeight : 0;
       score += normalizedTimeWeight * 15;
 
-      // 维度5: 区间分布均衡（15分满分）
-      if (isFirstHalf && firstHalfRatio < 0.5) {
-        score += Math.abs(0.5 - firstHalfRatio) * 30;
-      } else if (!isFirstHalf && firstHalfRatio > 0.5) {
-        score += Math.abs(0.5 - firstHalfRatio) * 30;
+      // 维度5: 区间分布均衡（15分满分）- 热号策略跳过，让趋势自然决定
+      if (strategy !== 'hot') {
+        if (isFirstHalf && firstHalfRatio < 0.5) {
+          score += Math.abs(0.5 - firstHalfRatio) * 30;
+        } else if (!isFirstHalf && firstHalfRatio > 0.5) {
+          score += Math.abs(0.5 - firstHalfRatio) * 30;
+        }
       }
 
       scored.push({
@@ -147,8 +165,8 @@ export class BackTuoOptimizer {
     const selected = [];
     const remaining = [...weights];
 
-    // 先确保两区都有覆盖（后区1-6和7-12各至少1个拖码）
-    if (tuoCount >= 2) {
+    // 区间覆盖选择：热号策略不做强制，让趋势自然决定；均衡/保守策略确保两区覆盖
+    if (strategy !== 'hot' && tuoCount >= 2) {
       const zone1Candidates = remaining.filter(w => w.number <= 6);
       const zone2Candidates = remaining.filter(w => w.number > 6);
 

@@ -2781,3 +2781,1129 @@ button.success {
     padding: 6px 12px !important;
   }
 }
+
+/* ==================== 双色球智能推荐样式 ==================== */
+
+.ssq-model-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 20px;
+  padding: 10px;
+  background: #f8f9fa;
+  border-radius: 8px;
+}
+
+.ssq-model-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  cursor: pointer;
+  border-left: 3px solid transparent;
+  transition: all 0.2s;
+  border-radius: 6px;
+}
+
+.ssq-model-item input[type="checkbox"] {
+  margin-top: 3px;
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.ssq-model-item.active {
+  background: #f0f3ff;
+  border-left-color: #ff4757;
+  color: #ff4757;
+}
+
+.ssq-model-info {
+  flex: 1;
+}
+
+.ssq-model-info strong {
+  color: #2c3e50;
+  margin-right: 5px;
+}
+
+.ssq-model-desc-text {
+  font-size: 0.85em;
+  color: #909399;
+}
+
+.ssq-gen-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 15px;
+  background: #f0f3ff;
+  padding: 10px 15px;
+  border-radius: 8px;
+}
+
+.ssq-gen-controls label {
+  font-size: 0.9em;
+  color: #606266;
+  font-weight: 500;
+}
+
+.ssq-gen-controls select {
+  padding: 6px 12px;
+  border: 2px solid #ff4757;
+  border-radius: 6px;
+  font-size: 1em;
+  font-weight: bold;
+  color: #ff4757;
+  cursor: pointer;
+}
+
+.ssq-gen-btn {
+  width: 100%;
+  padding: 14px;
+  background: linear-gradient(135deg, #ff4757 0%, #3742fa 100%);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 1.1em;
+  font-weight: bold;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(255,71,87,0.3);
+  transition: all 0.3s;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.1);
+}
+
+.ssq-gen-btn:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(255,71,87,0.4);
+}
+
+.ssq-gen-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* 冷热号统计 */
+.ssq-hotcold-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 15px;
+}
+
+.ssq-hotcold-section {
+  padding: 12px;
+  background: #f8f9fa;
+  border-radius: 8px;
+}
+
+.ssq-hotcold-section h4 {
+  margin: 0 0 8px 0;
+  font-size: 0.9em;
+  color: #2c3e50;
+}
+
+.ssq-numbers-row {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.ssq-num-ball {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  font-weight: bold;
+  font-size: 0.85em;
+}
+
+.ssq-num-ball.red {
+  background: #f8f9fa;
+  color: #333;
+  border: 2px solid #ff4757;
+}
+
+.ssq-num-ball.blue {
+  background: #f8f9fa;
+  color: #333;
+  border: 2px solid #3742fa;
+}
+
+.ssq-num-ball.hot {
+  color: white;
+}
+
+.ssq-num-ball.red.hot {
+  background: linear-gradient(135deg, #ff4757, #ff6b81);
+  border-color: transparent;
+  box-shadow: 0 2px 6px rgba(255,71,87,0.3);
+}
+
+.ssq-num-ball.blue.hot {
+  background: linear-gradient(135deg, #3742fa, #5352ed);
+  border-color: transparent;
+  box-shadow: 0 2px 6px rgba(55,66,250,0.3);
+}
+
+.ssq-num-ball.cold {
+  opacity: 0.7;
+}
+
+/* 推荐结果 */
+.ssq-results {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ssq-result-card {
+  background: white;
+  border-radius: 10px;
+  border: 1px solid #ebeef5;
+  overflow: hidden;
+}
+
+.ssq-result-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 15px;
+  background: linear-gradient(135deg, #ff4757 0%, #3742fa 100%);
+  color: white;
+}
+
+.ssq-result-tag {
+  background: rgba(255,255,255,0.2);
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 0.85em;
+  font-weight: 500;
+}
+
+.ssq-result-desc {
+  font-size: 0.8em;
+  opacity: 0.85;
+}
+
+.ssq-result-body {
+  padding: 10px;
+}
+
+.ssq-result-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  background: #f8f9fa;
+  border-radius: 6px;
+  margin-bottom: 6px;
+}
+
+.ssq-result-group:last-child {
+  margin-bottom: 0;
+}
+
+.ssq-group-index {
+  font-size: 0.8em;
+  color: #999;
+  min-width: 25px;
+}
+
+.ssq-group-red {
+  font-family: 'Courier New', monospace;
+  font-weight: bold;
+  color: #ff4757;
+  font-size: 1em;
+  letter-spacing: 2px;
+}
+
+.ssq-group-plus {
+  font-weight: bold;
+  color: #3742fa;
+  font-size: 1em;
+}
+
+.ssq-group-blue {
+  font-family: 'Courier New', monospace;
+  font-weight: bold;
+  color: #3742fa;
+  font-size: 1em;
+}
+
+/* 复制区域 */
+.ssq-copy-section {
+  margin-top: 15px;
+  padding-top: 15px;
+  border-top: 2px dashed #eee;
+  text-align: center;
+}
+
+.ssq-copy-btn {
+  padding: 12px 30px;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 1em;
+  font-weight: bold;
+  transition: all 0.3s;
+  box-shadow: 0 4px 8px rgba(79,172,254,0.3);
+}
+
+.ssq-copy-btn:hover {
+  transform: translateY(-2px);
+}
+
+.ssq-copy-hint {
+  margin-top: 10px;
+  font-size: 0.85em;
+  color: #999;
+}
+
+/* 数据信息 */
+.ssq-data-info-card {
+  background: #f0f7ff;
+  border-left: 3px solid #3742fa;
+}
+
+.ssq-data-info {
+  font-size: 0.85em;
+  color: #606266;
+  margin: 0 0 6px 0;
+}
+
+.ssq-data-info:last-child {
+  margin-bottom: 0;
+}
+
+/* 双色球推荐移动端适配 */
+@media (max-width: 768px) {
+  .ssq-hotcold-grid {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .ssq-num-ball {
+    width: 30px;
+    height: 30px;
+    font-size: 0.75em;
+  }
+
+  .ssq-gen-controls {
+    flex-wrap: wrap;
+  }
+
+  .ssq-model-grid {
+    gap: 4px;
+    padding: 8px;
+  }
+
+  .ssq-model-item {
+    padding: 6px 8px;
+  }
+
+  .ssq-result-group {
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .ssq-group-red,
+  .ssq-group-blue {
+    font-size: 0.9em;
+  }
+}
+
+/* ==================== 福彩双色球玩法页面样式 ==================== */
+
+.ssq-page {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 0;
+  position: relative;
+  z-index: 1;
+  min-height: 100vh;
+}
+
+/* 页面头部 */
+.ssq-header {
+  position: relative;
+  text-align: center;
+  padding: 60px 20px 40px;
+  overflow: hidden;
+  background: linear-gradient(135deg, #ff4757 0%, #ff6b81 40%, #3742fa 100%);
+  color: white;
+}
+
+.ssq-header-bg {
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  background-image: 
+    radial-gradient(circle at 20% 30%, rgba(255,71,87,0.4) 0%, transparent 50%),
+    radial-gradient(circle at 80% 70%, rgba(55,66,250,0.4) 0%, transparent 50%);
+  pointer-events: none;
+}
+
+.ssq-back-btn {
+  position: absolute;
+  top: 20px;
+  left: 20px;
+  padding: 8px 16px;
+  background: rgba(255,255,255,0.2);
+  border: 1px solid rgba(255,255,255,0.4);
+  border-radius: 20px;
+  color: white;
+  cursor: pointer;
+  font-size: 0.9em;
+  transition: all 0.3s;
+  z-index: 10;
+  backdrop-filter: blur(10px);
+}
+
+.ssq-back-btn:hover {
+  background: rgba(255,255,255,0.35);
+  transform: translateX(-3px);
+}
+
+.ssq-logo {
+  display: flex;
+  justify-content: center;
+  gap: 15px;
+  margin-bottom: 20px;
+}
+
+.ssq-ball {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  font-weight: bold;
+  color: white;
+  box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+}
+
+.red-ball-lg {
+  width: 60px; height: 60px;
+  font-size: 0.85em;
+  background: linear-gradient(135deg, #ff4757, #ff6b81);
+}
+
+.blue-ball-lg {
+  width: 60px; height: 60px;
+  font-size: 0.85em;
+  background: linear-gradient(135deg, #3742fa, #5352ed);
+}
+
+.ssq-title {
+  font-size: 2.2em;
+  margin: 0 0 10px 0;
+  text-shadow: 0 2px 8px rgba(0,0,0,0.3);
+  letter-spacing: 3px;
+}
+
+.ssq-subtitle {
+  font-size: 0.95em;
+  opacity: 0.9;
+  margin: 0;
+}
+
+/* 基础信息栏 */
+.ssq-info-bar {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+  padding: 20px;
+  background: #f8f9fa;
+}
+
+.ssq-info-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px;
+  background: white;
+  border-radius: 10px;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.06);
+}
+
+.ssq-info-icon {
+  font-size: 1.3em;
+}
+
+.ssq-info-text {
+  font-size: 0.9em;
+  color: #333;
+  font-weight: 500;
+}
+
+/* 标签页导航 */
+.ssq-tabs {
+  display: flex;
+  padding: 0 20px;
+  background: #f8f9fa;
+  gap: 8px;
+  overflow-x: auto;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+
+.ssq-tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 12px 16px;
+  border: none;
+  background: white;
+  border-radius: 10px 10px 0 0;
+  cursor: pointer;
+  font-size: 0.9em;
+  color: #666;
+  transition: all 0.3s;
+  font-weight: 500;
+  box-shadow: none;
+  text-shadow: none;
+}
+
+.ssq-tab.active {
+  background: linear-gradient(135deg, #ff4757, #3742fa);
+  color: white;
+  box-shadow: 0 2px 8px rgba(255,71,87,0.3);
+}
+
+.ssq-tab-icon {
+  font-size: 1em;
+}
+
+/* 内容区 */
+.ssq-content {
+  padding: 20px;
+  background: #f8f9fa;
+}
+
+.ssq-section {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+/* 卡片 */
+.ssq-card {
+  background: white;
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.06);
+  border: 1px solid #ebeef5;
+}
+
+.ssq-section-title {
+  margin: 0 0 15px 0;
+  color: #2c3e50;
+  font-size: 1.3em;
+  font-weight: 600;
+}
+
+.ssq-text {
+  font-size: 0.95em;
+  color: #606266;
+  line-height: 1.8;
+  margin: 0 0 10px 0;
+}
+
+.ssq-text strong {
+  color: #ff4757;
+}
+
+.ssq-warning-text {
+  background: #fff3cd;
+  padding: 12px;
+  border-radius: 8px;
+  border-left: 4px solid #ffc107;
+  color: #856404;
+  margin-bottom: 0;
+}
+
+/* 开奖时间 */
+.ssq-schedule {
+  display: flex;
+  gap: 15px;
+  margin: 15px 0;
+}
+
+.ssq-schedule-item {
+  flex: 1;
+  text-align: center;
+  padding: 15px;
+  background: linear-gradient(135deg, #ff475715, #3742fa15);
+  border-radius: 10px;
+  border: 1px solid #ebeef5;
+}
+
+.ssq-schedule-day {
+  font-weight: bold;
+  color: #2c3e50;
+  font-size: 1.1em;
+  margin-bottom: 5px;
+}
+
+.ssq-schedule-time {
+  color: #ff4757;
+  font-size: 1.3em;
+  font-weight: bold;
+}
+
+.ssq-note {
+  font-size: 0.85em;
+  color: #909399;
+  margin: 10px 0 0 0;
+  line-height: 1.6;
+}
+
+/* 号码规则 */
+.ssq-number-rules {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.ssq-zone-info {
+  padding: 15px;
+  border-radius: 10px;
+}
+
+.ssq-zone-info.red-zone {
+  background: linear-gradient(135deg, #fff5f7, #ffeef2);
+  border: 2px solid #ff4757;
+}
+
+.ssq-zone-info.blue-zone {
+  background: linear-gradient(135deg, #e8f0ff, #d4e4ff);
+  border: 2px solid #3742fa;
+}
+
+.ssq-zone-info h3 {
+  margin: 0 0 12px 0;
+  color: #2c3e50;
+  font-size: 1em;
+}
+
+.ssq-numbers-grid {
+  display: grid;
+  grid-template-columns: repeat(11, 1fr);
+  gap: 4px;
+}
+
+.ssq-numbers-grid.blue-grid {
+  grid-template-columns: repeat(8, 1fr);
+}
+
+.ssq-num-cell {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 4px;
+  border-radius: 6px;
+  font-size: 0.85em;
+  font-weight: bold;
+}
+
+.ssq-num-cell.red {
+  background: linear-gradient(135deg, #ff4757, #ff6b81);
+  color: white;
+}
+
+.ssq-num-cell.blue {
+  background: linear-gradient(135deg, #3742fa, #5352ed);
+  color: white;
+}
+
+.ssq-zone-desc {
+  margin: 10px 0 0 0;
+  font-size: 0.9em;
+  color: #606266;
+}
+
+.ssq-zone-desc strong {
+  color: #ff4757;
+}
+
+/* 中奖判定列表 */
+.ssq-list {
+  padding-left: 20px;
+  margin: 10px 0;
+  color: #606266;
+  line-height: 2;
+}
+
+.ssq-list li {
+  margin: 3px 0;
+}
+
+/* 奖级列表 */
+.ssq-prize-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ssq-prize-item {
+  padding: 12px 15px;
+  background: #f8f9fa;
+  border-radius: 8px;
+  border-left: 4px solid;
+  cursor: pointer;
+  transition: all 0.3s;
+}
+
+.ssq-prize-item:hover {
+  background: #f0f2f5;
+  transform: translateX(5px);
+}
+
+.ssq-prize-item.expanded {
+  background: white;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+}
+
+.ssq-prize-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.ssq-prize-level {
+  font-weight: bold;
+  font-size: 1em;
+  min-width: 70px;
+}
+
+.ssq-prize-condition {
+  font-size: 0.85em;
+  color: #606266;
+  flex: 1;
+}
+
+.ssq-prize-amount {
+  font-weight: bold;
+  color: #e74c3c;
+  font-size: 0.95em;
+}
+
+.ssq-expand-icon {
+  font-size: 0.7em;
+  color: #999;
+}
+
+.ssq-prize-detail {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px dashed #ddd;
+}
+
+.ssq-prize-detail p {
+  margin: 0 0 8px 0;
+  font-size: 0.9em;
+  color: #606266;
+  line-height: 1.6;
+}
+
+.ssq-prob {
+  color: #409eff;
+  font-weight: 500;
+}
+
+.ssq-prize-note {
+  margin-top: 15px;
+  padding: 12px;
+  background: #f0f7ff;
+  border-radius: 8px;
+  border-left: 3px solid #409eff;
+}
+
+.ssq-prize-note p {
+  margin: 0 0 8px 0;
+  font-size: 0.85em;
+  color: #606266;
+}
+
+/* 投注方式卡片 */
+.ssq-method-card {
+  border-left: 4px solid #667eea;
+}
+
+.ssq-method-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.ssq-method-icon {
+  font-size: 1.5em;
+}
+
+.ssq-method-name {
+  margin: 0;
+  font-size: 1.1em;
+  color: #2c3e50;
+}
+
+.ssq-method-tag {
+  padding: 4px 12px;
+  background: linear-gradient(135deg, #667eea, #764ba2);
+  color: white;
+  border-radius: 12px;
+  font-size: 0.75em;
+  font-weight: bold;
+}
+
+.ssq-method-desc {
+  font-size: 0.9em;
+  color: #606266;
+  line-height: 1.6;
+  margin: 0 0 12px 0;
+}
+
+.ssq-method-example {
+  padding: 10px;
+  background: #f0f3ff;
+  border-radius: 6px;
+  margin-bottom: 8px;
+}
+
+.ssq-example-label {
+  font-weight: bold;
+  color: #667eea;
+  font-size: 0.85em;
+}
+
+.ssq-example-value {
+  font-family: monospace;
+  color: #333;
+  font-size: 0.9em;
+}
+
+.ssq-method-cost {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.ssq-cost-label {
+  font-size: 0.85em;
+  color: #909399;
+}
+
+.ssq-cost-value {
+  font-weight: bold;
+  color: #e74c3c;
+  font-size: 0.95em;
+}
+
+/* 表格 */
+.ssq-table-container {
+  overflow-x: auto;
+  margin-top: 15px;
+}
+
+.ssq-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9em;
+}
+
+.ssq-table th {
+  background: linear-gradient(135deg, #667eea, #764ba2);
+  color: white;
+  padding: 10px;
+  text-align: center;
+  font-weight: 600;
+}
+
+.ssq-table td {
+  padding: 10px;
+  text-align: center;
+  border-bottom: 1px solid #eee;
+  color: #606266;
+}
+
+.ssq-table tr:hover td {
+  background: #f0f3ff;
+}
+
+/* 选号技巧 */
+.ssq-tip-card {
+  border-left: 4px solid #409eff;
+}
+
+.ssq-tip-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.ssq-tip-title {
+  margin: 0;
+  font-size: 1.1em;
+  color: #2c3e50;
+}
+
+.ssq-tip-type {
+  padding: 4px 10px;
+  color: white;
+  border-radius: 12px;
+  font-size: 0.75em;
+  font-weight: bold;
+}
+
+.ssq-tip-content {
+  font-size: 0.9em;
+  color: #606266;
+  line-height: 1.6;
+  margin: 0;
+}
+
+/* 页面底部 */
+.ssq-footer {
+  text-align: center;
+  padding: 30px 20px;
+  background: linear-gradient(135deg, #f8f9fa, #e8ecf0);
+  color: #909399;
+}
+
+.ssq-footer p {
+  margin: 0 0 8px 0;
+  font-size: 0.9em;
+}
+
+.ssq-footer-note {
+  font-size: 0.85em;
+  color: #c0c4cc;
+  font-style: italic;
+}
+
+/* 最新开奖号码展示 */
+.ssq-latest-draw-card {
+  margin: 15px 20px;
+  background: linear-gradient(135deg, #ff4757 0%, #3742fa 100%);
+  border-radius: 16px;
+  padding: 20px;
+  color: white;
+  box-shadow: 0 4px 15px rgba(255,71,87,0.25);
+}
+
+.ssq-latest-draw-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 15px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid rgba(255,255,255,0.3);
+}
+
+.ssq-latest-draw-title {
+  font-size: 1.1em;
+  font-weight: 600;
+}
+
+.ssq-latest-draw-period {
+  font-size: 0.9em;
+  background: rgba(255,255,255,0.2);
+  padding: 4px 12px;
+  border-radius: 12px;
+}
+
+.ssq-latest-draw-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ssq-latest-red-row,
+.ssq-latest-blue-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.ssq-draw-ball {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  font-weight: 700;
+  font-size: 0.95em;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+}
+
+.ssq-draw-ball.red {
+  background: linear-gradient(135deg, #ff4757, #ff6b81);
+  color: white;
+}
+
+.ssq-draw-ball.blue {
+  background: linear-gradient(135deg, #3742fa, #5352ed);
+  color: white;
+}
+
+.ssq-zone-label {
+  font-weight: 600;
+  min-width: 40px;
+  font-size: 0.9em;
+}
+
+/* 开奖号码历史列表 */
+.ssq-history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ssq-history-all {
+  max-height: 400px;
+  overflow-y: auto;
+  border: 1px solid #ebeef5;
+  border-radius: 8px;
+  padding: 8px;
+}
+
+.ssq-history-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  background: #f9fafc;
+  border-radius: 8px;
+  transition: background 0.2s;
+}
+
+.ssq-history-row:hover {
+  background: #f0f3ff;
+}
+
+.ssq-history-period {
+  font-size: 0.85em;
+  color: #909399;
+  min-width: 60px;
+  font-weight: 500;
+}
+
+.ssq-history-numbers {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+}
+
+.ssq-history-red,
+.ssq-history-blue {
+  display: flex;
+  gap: 4px;
+}
+
+.ssq-history-plus {
+  color: #909399;
+  font-weight: 600;
+  font-size: 0.9em;
+}
+
+.ssq-draw-ball-sm {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  font-weight: 600;
+  font-size: 0.8em;
+}
+
+.ssq-draw-ball-sm.red {
+  background: linear-gradient(135deg, #ff4757, #ff6b81);
+  color: white;
+}
+
+.ssq-draw-ball-sm.blue {
+  background: linear-gradient(135deg, #3742fa, #5352ed);
+  color: white;
+}
+
+.ssq-toggle-btn {
+  width: 100%;
+  padding: 10px;
+  background: #f0f3ff;
+  border: 1px solid #d9e1ff;
+  border-radius: 8px;
+  color: #667eea;
+  font-size: 0.9em;
+  cursor: pointer;
+  transition: all 0.2s;
+  margin-bottom: 10px;
+}
+
+.ssq-toggle-btn:hover {
+  background: #d9e1ff;
+}
+
+/* 双色球页面移动端适配 */
+@media (max-width: 768px) {
+  .ssq-header {
+    padding: 40px 15px 30px;
+  }
+  
+  .ssq-title {
+    font-size: 1.8em;
+  }
+  
+  .ssq-info-bar {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+    padding: 15px;
+  }
+  
+  .ssq-tabs {
+    padding: 0 15px;
+    gap: 4px;
+  }
+  
+  .ssq-tab {
+    padding: 10px 12px;
+    font-size: 0.8em;
+  }
+  
+  .ssq-content {
+    padding: 15px;
+  }
+  
+  .ssq-schedule {
+    flex-direction: column;
+    gap: 8px;
+  }
+  
+  .ssq-numbers-grid {
+    grid-template-columns: repeat(7, 1fr);
+    }
+  
+  .ssq-numbers-grid.blue-grid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+  
+  .ssq-prize-header {
+    flex-direction: column;
+    gap: 6px;
+    align-items: flex-start;
+  }
+  
+  .red-ball-lg, .blue-ball-lg {
+    width: 50px;
+    height: 50px;
+    font-size: 0.75em;
+  }
+}

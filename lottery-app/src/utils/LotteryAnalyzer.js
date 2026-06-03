@@ -187,8 +187,8 @@ class LotteryAnalyzer {
           continue;
         }
         
-        const front = numbers.slice(0, 5);
-        const back = numbers.slice(5);
+        const front = numbers.slice(0, CONFIG.FRONT_COUNT);
+        const back = numbers.slice(CONFIG.FRONT_COUNT);
         
         const isValidFront = front.every(n => n >= 1 && n <= CONFIG.FRONT_RANGE);
         const isValidBack = back.every(n => n >= 1 && n <= CONFIG.BACK_RANGE);
@@ -413,8 +413,8 @@ class LotteryAnalyzer {
     for (let i = 0; i < groups; i++) {
       const nums = this.models.rotation.predict();
       results.push({
-        front: nums.slice(0, 5),
-        back: nums.slice(5)
+        front: nums.slice(0, CONFIG.FRONT_COUNT),
+        back: nums.slice(CONFIG.FRONT_COUNT)
       });
     }
     return results;
@@ -792,8 +792,8 @@ class LotteryAnalyzer {
    * 计算命中数
    */
   calculateHits(prediction, actualDraw) {
-    const predFront = new Set(prediction.slice(0, 5));
-    const predBack = new Set(prediction.slice(5));
+    const predFront = new Set(prediction.slice(0, CONFIG.FRONT_COUNT));
+    const predBack = new Set(prediction.slice(CONFIG.FRONT_COUNT));
     const actualFront = new Set(actualDraw.front);
     const actualBack = new Set(actualDraw.back);
     
@@ -1241,8 +1241,8 @@ class LotteryAnalyzer {
           comb = this.generateStatisticalPrediction(model);
       }
       
-      const front = comb.slice(0, 5);
-      const back = comb.slice(5);
+      const front = comb.slice(0, CONFIG.FRONT_COUNT);
+      const back = comb.slice(CONFIG.FRONT_COUNT);
       const backKey = [...back].sort((a, b) => a - b).join(',');
       
       if (!usedBackKeys.has(backKey)) {
@@ -1272,8 +1272,8 @@ class LotteryAnalyzer {
           comb = this.generateStatisticalPrediction(model);
       }
       
-      const front = comb.slice(0, 5);
-      const back = comb.slice(5);
+      const front = comb.slice(0, CONFIG.FRONT_COUNT);
+      const back = comb.slice(CONFIG.FRONT_COUNT);
       results.push({ front, back });
     }
     
@@ -1399,8 +1399,8 @@ class LotteryAnalyzer {
     for (let i = 0; i < SAMPLE_COUNT.zhouyi; i++) {
       const pred = this.generateZhouyiPrediction(i);
       zhouyiPredictions.push({
-        front: pred.slice(0, 5),
-        back: pred.slice(5)
+        front: pred.slice(0, CONFIG.FRONT_COUNT),
+        back: pred.slice(CONFIG.FRONT_COUNT)
       });
     }
 
@@ -1408,8 +1408,8 @@ class LotteryAnalyzer {
     for (let i = 0; i < SAMPLE_COUNT.bayesian; i++) {
       const pred = this.generateBayesianPrediction();
       bayesianPredictions.push({
-        front: pred.slice(0, 5),
-        back: pred.slice(5)
+        front: pred.slice(0, CONFIG.FRONT_COUNT),
+        back: pred.slice(CONFIG.FRONT_COUNT)
       });
     }
 
@@ -1426,8 +1426,8 @@ class LotteryAnalyzer {
     for (let i = 0; i < SAMPLE_COUNT.hybrid; i++) {
       const pred = this.generateHybridPrediction();
       hybridPredictions.push({
-        front: pred.slice(0, 5),
-        back: pred.slice(5)
+        front: pred.slice(0, CONFIG.FRONT_COUNT),
+        back: pred.slice(CONFIG.FRONT_COUNT)
       });
     }
 
@@ -1436,8 +1436,8 @@ class LotteryAnalyzer {
     for (let i = 0; i < SAMPLE_COUNT.zone_frequency; i++) {
       const pred = this.generateZoneFrequencyPrediction(i);  // 传入seed参数增加多样性
       zoneFrequencyPredictions.push({
-        front: pred.slice(0, 5),
-        back: pred.slice(5)
+        front: pred.slice(0, CONFIG.FRONT_COUNT),
+        back: pred.slice(CONFIG.FRONT_COUNT)
       });
     }
 

@@ -55,21 +55,29 @@ export class ZhouyiSpaceTimeModel extends BaseModel {
     const lowerTrigram = (drawYear + drawMonth + drawDay + drawHour + drawMinute) % 8;
     const movingLine = (drawYear + drawMonth + drawDay + drawHour + drawMinute + drawSecond + minDiff) % 6;
 
-    // 卦象元素映射
-    const trigramElements = {
-      0: [1, 8, 15, 22, 29],
-      1: [2, 9, 16, 23, 30],
-      2: [3, 10, 17, 24, 31],
-      3: [4, 11, 18, 25, 32],
-      4: [5, 12, 19, 26, 33],
-      5: [6, 13, 20, 27, 34],
-      6: [7, 14, 21, 28, 35],
-      7: [1, 9, 17, 25, 33]
-    };
+    // 卦象元素映射（动态适配CONFIG.FRONT_RANGE）
+    const trigramStep = 7;
+    const trigramElements = {};
+    for (let t = 0; t < 8; t++) {
+      const elements = [];
+      if (t < 7) {
+        for (let k = 0; k < 5; k++) {
+          const n = t + 1 + k * trigramStep;
+          if (n >= 1 && n <= CONFIG.FRONT_RANGE) elements.push(n);
+        }
+      } else {
+        // 特殊卦：跨步组合
+        for (let k = 0; k < 5; k++) {
+          const n = 1 + k * 8;
+          if (n >= 1 && n <= CONFIG.FRONT_RANGE) elements.push(n);
+        }
+      }
+      trigramElements[t] = elements;
+    }
 
-    // 根据上卦和下卦组合选号
-    const poolUpper = trigramElements[upperTrigram] || [];
-    const poolLower = trigramElements[lowerTrigram] || [];
+    // 确保号码池号码都在范围内
+    const poolUpper = (trigramElements[upperTrigram] || []).filter(n => n >= 1 && n <= CONFIG.FRONT_RANGE);
+    const poolLower = (trigramElements[lowerTrigram] || []).filter(n => n >= 1 && n <= CONFIG.FRONT_RANGE);
     const combinedPool = [...new Set([...poolUpper, ...poolLower])];
 
     // 如果号码池不足，补充动爻相关号码
@@ -109,22 +117,45 @@ export class ZhouyiSpaceTimeModel extends BaseModel {
     let front = this.smartFrontSample(zhouyiFrontWeights, CONFIG.FRONT_COUNT);
 
     // 后区：开奖时刻的时辰候选 + 条件概率融合
-    const hourBackMap = {
-      0: [1, 6, 7, 12], 1: [1, 6, 7, 12],
-      2: [2, 5, 8, 11], 3: [2, 5, 8, 11],
-      4: [3, 4, 9, 10], 5: [3, 4, 9, 10],
-      6: [1, 4, 7, 10], 7: [1, 4, 7, 10],
-      8: [2, 5, 8, 11], 9: [2, 5, 8, 11],
-      10: [3, 6, 9, 12], 11: [3, 6, 9, 12],
-      12: [1, 6, 7, 12], 13: [1, 6, 7, 12],
-      14: [2, 5, 8, 11], 15: [2, 5, 8, 11],
-      16: [3, 4, 9, 10], 17: [3, 4, 9, 10],
-      18: [1, 4, 7, 10], 19: [1, 4, 7, 10],
-      20: [2, 5, 8, 11], 21: [2, 5, 8, 11],
-      22: [3, 6, 9, 12], 23: [3, 6, 9, 12]
-    };
+    // 大乐透(BACK_RANGE=12)使用传统数理映射，其他范围动态生成
+    let hourBackMap;
+    if (CONFIG.BACK_RANGE === 12) {
+      // 大乐透专用：基于传统数理的时辰映射
+      hourBackMap = {
+        0: [1, 6, 7, 12], 1: [1, 6, 7, 12],
+        2: [2, 5, 8, 11], 3: [2, 5, 8, 11],
+        4: [3, 4, 9, 10], 5: [3, 4, 9, 10],
+        6: [1, 4, 7, 10], 7: [1, 4, 7, 10],
+        8: [2, 5, 8, 11], 9: [2, 5, 8, 11],
+        10: [3, 6, 9, 12], 11: [3, 6, 9, 12],
+        12: [1, 6, 7, 12], 13: [1, 6, 7, 12],
+        14: [2, 5, 8, 11], 15: [2, 5, 8, 11],
+        16: [3, 4, 9, 10], 17: [3, 4, 9, 10],
+        18: [1, 4, 7, 10], 19: [1, 4, 7, 10],
+        20: [2, 5, 8, 11], 21: [2, 5, 8, 11],
+        22: [3, 6, 9, 12], 23: [3, 6, 9, 12]
+      };
+    } else {
+      // 其他范围（如双色球BACK_RANGE=16）：动态生成时辰映射
+      hourBackMap = {};
+      const backGroupSize = Math.ceil(CONFIG.BACK_RANGE / 4);
+      for (let h = 0; h < 24; h++) {
+        const groupIdx = h % 4;
+        const groupStart = groupIdx * backGroupSize + 1;
+        const groupEnd = Math.min(groupStart + backGroupSize - 1, CONFIG.BACK_RANGE);
+        const candidates = [];
+        for (let n = groupStart; n <= groupEnd; n++) candidates.push(n);
+        // 补充一些间隔号码以增加多样性
+        if (CONFIG.BACK_RANGE > 6) {
+          const altStart = ((groupIdx + 2) % 4) * backGroupSize + 1;
+          const altEnd = Math.min(altStart + backGroupSize - 1, CONFIG.BACK_RANGE);
+          for (let n = altStart; n <= altEnd && candidates.length < 4; n++) candidates.push(n);
+        }
+        hourBackMap[h] = candidates;
+      }
+    }
 
-    const backCandidates = hourBackMap[drawHour] || [1, 6, 7, 12];
+    const backCandidates = hourBackMap[drawHour] || Array.from({ length: Math.min(4, CONFIG.BACK_RANGE) }, (_, i) => i + 1);
     const expandedBackWeights = {};
     for (let i = 1; i <= CONFIG.BACK_RANGE; i++) {
       const isTimeCandidate = backCandidates.includes(i);

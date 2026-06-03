@@ -26,21 +26,25 @@ export class ZoneFrequencyModel extends BaseModel {
       return [...front, ...back];
     }
 
-    // ==================== 第一步：区间定义 ====================
-    const frontZones = [
-      { name: '一区', start: 1, end: 5 },
-      { name: '二区', start: 6, end: 10 },
-      { name: '三区', start: 11, end: 15 },
-      { name: '四区', start: 16, end: 20 },
-      { name: '五区', start: 21, end: 25 },
-      { name: '六区', start: 26, end: 30 },
-      { name: '七区', start: 31, end: 35 }
-    ];
+    // ==================== 第一步：区间定义（动态适配CONFIG） ====================
+    const frontZoneSize = 5;
+    const frontZoneCount = Math.ceil(CONFIG.FRONT_RANGE / frontZoneSize);
+    const frontZoneNames = ['一区','二区','三区','四区','五区','六区','七区','八区','九区','十区'];
+    const frontZones = [];
+    for (let z = 0; z < frontZoneCount; z++) {
+      const start = z * frontZoneSize + 1;
+      const end = Math.min((z + 1) * frontZoneSize, CONFIG.FRONT_RANGE);
+      frontZones.push({ name: frontZoneNames[z] || `第${z+1}区`, start, end });
+    }
 
-    const backZones = [
-      { name: '后一区', start: 1, end: 6 },
-      { name: '后二区', start: 7, end: 12 }
-    ];
+    const backZoneSize = CONFIG.BACK_RANGE <= 12 ? 6 : Math.ceil(CONFIG.BACK_RANGE / Math.ceil(CONFIG.BACK_COUNT * 1.5));
+    const backZoneCount = Math.ceil(CONFIG.BACK_RANGE / backZoneSize);
+    const backZones = [];
+    for (let z = 0; z < backZoneCount; z++) {
+      const start = z * backZoneSize + 1;
+      const end = Math.min((z + 1) * backZoneSize, CONFIG.BACK_RANGE);
+      backZones.push({ name: `后${z+1}区`, start, end });
+    }
 
     // ==================== 第二步：计算各区间的综合热度 ====================
     const frontZoneScores = frontZones.map(zone => {
@@ -51,13 +55,14 @@ export class ZoneFrequencyModel extends BaseModel {
       return {
         ...zone,
         totalFreq: zoneTotalFreq,
-        avgFreq: zoneTotalFreq / 5
+        avgFreq: zoneTotalFreq / (zone.end - zone.start + 1)
       };
     });
 
-    // 按总频率排序，选择最热的4个区间
+    // 按总频率排序，选择最热的区间（选够覆盖 CONFIG.FRONT_COUNT 的区间数）
+    const selectedFrontZoneCount = Math.min(frontZoneCount, Math.ceil(CONFIG.FRONT_COUNT * 0.8));
     const sortedFrontZones = [...frontZoneScores].sort((a, b) => b.totalFreq - a.totalFreq);
-    const selectedFrontZones = sortedFrontZones.slice(0, 4);
+    const selectedFrontZones = sortedFrontZones.slice(0, selectedFrontZoneCount);
 
     console.log('🎯 选择的前区区间:', selectedFrontZones.map(z => `${z.name}(${z.totalFreq})`).join(', '));
 
@@ -161,26 +166,42 @@ export class ZoneFrequencyModel extends BaseModel {
 
     // ==================== 第五步：后区选择 ====================
     const backNumbers = [];
-    backZones.forEach((zone) => {
-      const zoneCandidates = [];
-      for (let i = zone.start; i <= zone.end; i++) {
+    if (CONFIG.BACK_RANGE === 12 && CONFIG.BACK_COUNT === 2) {
+      // 大乐透专用逻辑：从2个后区各选1个
+      backZones.forEach((zone) => {
+        const zoneCandidates = [];
+        for (let i = zone.start; i <= zone.end; i++) {
+          const freq = backCounter[String(i)] || backCounter[i] || 0;
+          zoneCandidates.push({ number: i, freq });
+        }
+        zoneCandidates.sort((a, b) => b.freq - a.freq);
+        const topN = Math.min(2, zoneCandidates.length);
+        const selectIdx = Math.floor(Math.random() * topN);
+        const selectedCandidate = zoneCandidates[selectIdx];
+        backNumbers.push(selectedCandidate.number);
+      });
+    } else {
+      // 其他玩法（如双色球）：按频率加权选择 CONFIG.BACK_COUNT 个
+      const backAllCandidates = [];
+      for (let i = 1; i <= CONFIG.BACK_RANGE; i++) {
         const freq = backCounter[String(i)] || backCounter[i] || 0;
-        zoneCandidates.push({ number: i, freq });
+        backAllCandidates.push({ number: i, freq });
       }
+      backAllCandidates.sort((a, b) => b.freq - a.freq);
+      const backTopN = Math.min(CONFIG.BACK_COUNT + 2, backAllCandidates.length);
+      const backPool = backAllCandidates.slice(0, backTopN);
+      const backPoolWeights = backPool.map(c => c.freq + 1);
+      const backSelected = this.weightedSampleNoReplacement(
+        backPool.map(c => c.number),
+        backPoolWeights,
+        CONFIG.BACK_COUNT
+      );
+      backNumbers.push(...backSelected);
+    }
 
-      zoneCandidates.sort((a, b) => b.freq - a.freq);
-
-      // 从前2名中选择一个
-      const topN = Math.min(2, zoneCandidates.length);
-      const selectIdx = Math.floor(Math.random() * topN);
-      const selectedCandidate = zoneCandidates[selectIdx];
-
-      backNumbers.push(selectedCandidate.number);
-    });
-
-    // 确保前区有5个号码
-    while (frontNumbers.length < 5) {
-      const allNumbers = Array.from({ length: 35 }, (_, i) => i + 1);
+    // 确保前区有 CONFIG.FRONT_COUNT 个号码
+    while (frontNumbers.length < CONFIG.FRONT_COUNT) {
+      const allNumbers = Array.from({ length: CONFIG.FRONT_RANGE }, (_, i) => i + 1);
       const missing = allNumbers.filter(n => !frontNumbers.includes(n));
       if (missing.length > 0) {
         const randomIdx = Math.floor(Math.random() * missing.length);
@@ -190,9 +211,9 @@ export class ZoneFrequencyModel extends BaseModel {
       }
     }
 
-    // 确保后区有2个号码
-    while (backNumbers.length < 2) {
-      const allNumbers = Array.from({ length: 12 }, (_, i) => i + 1);
+    // 确保后区有 CONFIG.BACK_COUNT 个号码
+    while (backNumbers.length < CONFIG.BACK_COUNT) {
+      const allNumbers = Array.from({ length: CONFIG.BACK_RANGE }, (_, i) => i + 1);
       const missing = allNumbers.filter(n => !backNumbers.includes(n));
       if (missing.length > 0) {
         const randomIdx = Math.floor(Math.random() * missing.length);

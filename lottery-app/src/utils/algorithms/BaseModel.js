@@ -103,7 +103,8 @@ export class BaseModel {
     const evenWeights = evenNums.map(n => adjustedWeights[n]);
     
     let back;
-    if (CONFIG.BACK_STRATIFIED_ODD && strategy !== 'regression') {
+    if (CONFIG.BACK_STRATIFIED_ODD && strategy !== 'regression' && CONFIG.BACK_COUNT >= 2) {
+      // 分层采样：保证奇偶分布（仅当需要选2个或以上时）
       const oddPick = this.weightedSampleNoReplacement(oddNums, oddWeights, 1);
       const evenPick = this.weightedSampleNoReplacement(evenNums, evenWeights, 1);
       back = [...oddPick, ...evenPick];
@@ -167,32 +168,38 @@ export class BaseModel {
    * @returns {number[]} 修正后的号码
    */
   enforceZoneCoverage(front, minZones = 4) {
-    const frontZones = new Set(front.map(n => Math.floor((n - 1) / 5)));
+    const zoneSize = 5;
+    const totalZones = Math.ceil(CONFIG.FRONT_RANGE / zoneSize);
+    const frontZones = new Set(front.map(n => Math.floor((n - 1) / zoneSize)));
     if (frontZones.size >= minZones) return front.sort((a, b) => a - b);
-    
-    const uncoveredZones = [0,1,2,3,4,5,6].filter(z => !frontZones.has(z));
+  
+    const uncoveredZones = Array.from({ length: totalZones }, (_, i) => i).filter(z => !frontZones.has(z));
     const frontCopy = [...front];
-    
+  
     while (frontZones.size < minZones && uncoveredZones.length > 0) {
       const targetZone = uncoveredZones[Math.floor(Math.random() * uncoveredZones.length)];
-      const zoneNumbers = Array.from({ length: 5 }, (_, i) => targetZone * 5 + i + 1);
-      
+      // 只生成在 CONFIG.FRONT_RANGE 范围内的号码
+      const zoneNumbers = [];
+      for (let i = targetZone * zoneSize + 1; i <= Math.min((targetZone + 1) * zoneSize, CONFIG.FRONT_RANGE); i++) {
+        zoneNumbers.push(i);
+      }
+  
       const zoneCount = {};
       frontCopy.forEach(n => { 
-        zoneCount[Math.floor((n-1)/5)] = (zoneCount[Math.floor((n-1)/5)] || 0) + 1; 
+        zoneCount[Math.floor((n-1)/zoneSize)] = (zoneCount[Math.floor((n-1)/zoneSize)] || 0) + 1; 
       });
-      
+  
       const crowdedZone = Object.entries(zoneCount).sort((a, b) => b[1] - a[1])[0];
-      const removeIdx = frontCopy.findIndex(n => Math.floor((n-1)/5) === Number(crowdedZone[0]));
-      
-      const replacement = zoneNumbers.filter(n => !frontCopy.includes(n));
+      const removeIdx = frontCopy.findIndex(n => Math.floor((n-1)/zoneSize) === Number(crowdedZone[0]));
+  
+      const replacement = zoneNumbers.filter(n => !frontCopy.includes(n) && n <= CONFIG.FRONT_RANGE);
       if (replacement.length > 0) {
         frontCopy[removeIdx] = replacement[Math.floor(Math.random() * replacement.length)];
         frontZones.add(targetZone);
         uncoveredZones.splice(uncoveredZones.indexOf(targetZone), 1);
       }
     }
-    
+  
     return frontCopy.sort((a, b) => a - b);
   }
 

@@ -8,7 +8,12 @@ import { ConfidenceCalculator } from './utils/optimization/ConfidenceCalculator.
 import { trackNumberGeneration, trackCopy, trackSave, trackDataUpdate, trackModelSelection } from './utils/baiduAnalytics';
 import AuthGuard from './components/AuthGuard';
 import DataVisualization from './components/DataVisualization';
+import ShuangSeQiuPage from './components/ShuangSeQiuPage';
 import './App.css';
+
+// 隐藏页面进入机制：连续点击标题7次（3秒内）可进入福彩双色球玩法页面
+let titleClickCount = 0;
+let titleClickTimer = null;
 
 // 辅助模型推荐卡片组件（可展开/收起）
 function ModelRecommendationCard({ rec, info, formatNums }) {
@@ -230,8 +235,32 @@ function App() {
   const [backSelectionMode, setBackSelectionMode] = useState('dan'); // 后区选择模式
   const [copyDanTuoSuccess, setCopyDanTuoSuccess] = useState(false); // 复制成功状态
   const [modelRecommendations, setModelRecommendations] = useState(null); // 辅助模型推荐结果
+  const [showSSQPage, setShowSSQPage] = useState(false); // 是否显示福彩双色球玩法页面
 
-  // 从数据中获取最后一组（最新一期）号码
+  // 检查 URL hash 是否为 #ssq，用于隐藏页面直接访问
+  useEffect(() => {
+    const checkHash = () => {
+      if (window.location.hash === '#ssq') {
+        setShowSSQPage(true);
+      }
+    };
+    checkHash();
+    window.addEventListener('hashchange', checkHash);
+    return () => window.removeEventListener('hashchange', checkHash);
+  }, []);
+
+  // 隐藏页面 - 标题点击处理
+  const handleTitleClick = () => {
+    titleClickCount++;
+    if (titleClickTimer) clearTimeout(titleClickTimer);
+    if (titleClickCount >= 7) {
+      titleClickCount = 0;
+      setShowSSQPage(true);
+      window.location.hash = '#ssq';
+      return;
+    }
+    titleClickTimer = setTimeout(() => { titleClickCount = 0; }, 3000);
+  };
   const getLatestDrawFromData = () => {
     if (!analyzer.historyData || analyzer.historyData.length === 0) return null;
     
@@ -1173,6 +1202,18 @@ function App() {
     trackSave();
   };
 
+  // 如果显示福彩双色球玩法页面，则直接渲染该页面
+  if (showSSQPage) {
+    return (
+      <AuthGuard>
+        <ShuangSeQiuPage onBack={() => {
+          setShowSSQPage(false);
+          window.location.hash = '';
+        }} />
+      </AuthGuard>
+    );
+  }
+
   return (
     <AuthGuard>
       <div className="app">
@@ -1186,7 +1227,7 @@ function App() {
           <div className="header-watermark wm-4">发财大计</div>
           <div className="header-watermark wm-5">王正伟</div>
           <div className="header-watermark wm-6">发财大计</div>
-          <h1>🧧 发财大计</h1>
+          <h1 onClick={handleTitleClick} style={{ cursor: 'default' }}>🧧 发财大计</h1>
           <p>苟富贵，勿相忘！</p>
         </header>
 

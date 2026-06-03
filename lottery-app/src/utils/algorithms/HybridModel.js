@@ -140,18 +140,33 @@ export class HybridModel extends BaseModel {
   evaluateCombination(front, back) {
     let score = 50;
 
-    // 奇偶平衡
+    // 奇偶平衡（动态适配FRONT_COUNT）
     const oddCount = front.filter(n => n % 2 !== 0).length;
-    if (oddCount >= 2 && oddCount <= 3) score += 10;
+    const idealOddMin = Math.round(CONFIG.FRONT_COUNT * 0.4);
+    const idealOddMax = Math.round(CONFIG.FRONT_COUNT * 0.6);
+    if (oddCount >= idealOddMin && oddCount <= idealOddMax) score += 10;
 
-    // 大小平衡
-    const bigCount = front.filter(n => n > 17).length;
-    if (bigCount >= 2 && bigCount <= 3) score += 10;
+    // 大小平衡（动态适配FRONT_RANGE）
+    const halfLine = Math.floor(CONFIG.FRONT_RANGE / 2);
+    const bigCount = front.filter(n => n > halfLine).length;
+    const idealBigMin = Math.round(CONFIG.FRONT_COUNT * 0.4);
+    const idealBigMax = Math.round(CONFIG.FRONT_COUNT * 0.6);
+    if (bigCount >= idealBigMin && bigCount <= idealBigMax) score += 10;
 
-    // 后区和值
+    // 后区和值（动态适配BACK_COUNT和BACK_RANGE）
     const backSum = back.reduce((a, b) => a + b, 0);
-    if (backSum >= 6 && backSum <= 12) score += 15;
-    else if (backSum >= 3 && backSum <= 16) score += 5;
+    if (CONFIG.BACK_COUNT >= 2) {
+      // 多后区：和值理想范围
+      const idealSumMin = Math.round(CONFIG.BACK_COUNT * CONFIG.BACK_RANGE * 0.25);
+      const idealSumMax = Math.round(CONFIG.BACK_COUNT * CONFIG.BACK_RANGE * 0.5);
+      if (backSum >= idealSumMin && backSum <= idealSumMax) score += 15;
+      else if (backSum >= idealSumMin - 3 && backSum <= idealSumMax + 4) score += 5;
+    } else {
+      // 单后区号码：中等偏高号码得分更高
+      const midBack = Math.ceil(CONFIG.BACK_RANGE / 3);
+      if (backSum >= midBack && backSum <= CONFIG.BACK_RANGE) score += 15;
+      else if (backSum >= Math.ceil(CONFIG.BACK_RANGE / 4)) score += 5;
+    }
 
     return score;
   }

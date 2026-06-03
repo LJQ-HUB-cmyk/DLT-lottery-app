@@ -26,8 +26,9 @@ function ModelRecommendationCard({ rec, info, formatNums }) {
     let minDiff = 7, nextDrawDay = 1;
     for (const d of drawDays) {
       let diff = d - weekday;
-      if (diff <= 0) diff += 7;
-      if (diff === 0 && now.getHours() >= 20) diff = 7;
+      if (diff < 0) diff += 7; // 只有负数才加7
+      // 如果diff=0（今天就是开奖日），检查是否已开奖
+      if (diff === 0 && (now.getHours() > 21 || (now.getHours() === 21 && now.getMinutes() >= 0))) diff = 7; // 21:00后认为已开奖，找下一期
       if (diff < minDiff) { minDiff = diff; nextDrawDay = d; }
     }
     const nextDate = new Date(now);

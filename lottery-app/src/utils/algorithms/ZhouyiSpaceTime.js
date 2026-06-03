@@ -17,33 +17,43 @@ export class ZhouyiSpaceTimeModel extends BaseModel {
     const conditionalProb = this.conditionalProbability.calculateConditionalProbability();
     const correlation = this.correlationAnalyzer.calculateNumberCorrelation();
 
-    // 获取时间要素
+    // 获取当前时间要素
     const year = now.getFullYear();
     const month = now.getMonth() + 1;
     const day = now.getDate();
-    const hour = now.getHours();
-    const minute = now.getMinutes();
-    const second = now.getSeconds();
     const weekday = now.getDay();
 
-    // 计算距离下次开奖的天数
+    // 计算下期开奖时间（用于获取开奖时刻的时辰）
     const drawDays = [1, 3, 6];
-    let daysToNextDraw = 0;
-    for (const drawDay of drawDays) {
-      let diff = drawDay - weekday;
-      if (diff < 0) diff += 7;
-      if (diff === 0 && hour >= 20) diff = 7;
-      if (diff > 0) {
-        daysToNextDraw = diff;
-        break;
-      }
+    let minDiff = 7, nextDrawDay = 1;
+    for (const d of drawDays) {
+      let diff = d - weekday;
+      if (diff < 0) diff += 7; // 只有负数才加7
+      // 如果diff=0（今天就是开奖日），检查是否已开奖（21:00后认为已开奖）
+      if (diff === 0 && (now.getHours() > 21 || (now.getHours() === 21 && now.getMinutes() >= 0))) diff = 7;
+      if (diff < minDiff) { minDiff = diff; nextDrawDay = d; }
     }
-    if (daysToNextDraw === 0) daysToNextDraw = 7;
+    
+    // 计算下期开奖的具体日期和时间
+    const nextDrawDate = new Date(now);
+    nextDrawDate.setDate(nextDrawDate.getDate() + minDiff);
+    // 大乐透开奖时间是21:25，这里取21点作为时辰判断
+    nextDrawDate.setHours(21, 0, 0, 0);
+    
+    // 使用开奖时刻的时间要素进行卦象计算
+    const drawYear = nextDrawDate.getFullYear();
+    const drawMonth = nextDrawDate.getMonth() + 1;
+    const drawDay = nextDrawDate.getDate();
+    const drawHour = nextDrawDate.getHours(); // 21点
+    const drawMinute = nextDrawDate.getMinutes(); // 0
+    const drawSecond = 0; // 开奖时刻秒数取0
+    
+    console.log(' 周易模型 - 开奖时间:', `${drawYear}/${drawMonth}/${drawDay} ${drawHour}:${drawMinute}`, '时辰候选:', drawHour);
 
-    // 计算卦象
-    const upperTrigram = (year + month + day) % 8;
-    const lowerTrigram = (year + month + day + hour + minute) % 8;
-    const movingLine = (year + month + day + hour + minute + second + daysToNextDraw) % 6;
+    // 计算卦象（使用开奖时刻）
+    const upperTrigram = (drawYear + drawMonth + drawDay) % 8;
+    const lowerTrigram = (drawYear + drawMonth + drawDay + drawHour + drawMinute) % 8;
+    const movingLine = (drawYear + drawMonth + drawDay + drawHour + drawMinute + drawSecond + minDiff) % 6;
 
     // 卦象元素映射
     const trigramElements = {
@@ -98,7 +108,7 @@ export class ZhouyiSpaceTimeModel extends BaseModel {
 
     let front = this.smartFrontSample(zhouyiFrontWeights, CONFIG.FRONT_COUNT);
 
-    // 后区：时辰候选 + 条件概率融合
+    // 后区：开奖时刻的时辰候选 + 条件概率融合
     const hourBackMap = {
       0: [1, 6, 7, 12], 1: [1, 6, 7, 12],
       2: [2, 5, 8, 11], 3: [2, 5, 8, 11],
@@ -114,7 +124,7 @@ export class ZhouyiSpaceTimeModel extends BaseModel {
       22: [3, 6, 9, 12], 23: [3, 6, 9, 12]
     };
 
-    const backCandidates = hourBackMap[hour] || [1, 6, 7, 12];
+    const backCandidates = hourBackMap[drawHour] || [1, 6, 7, 12];
     const expandedBackWeights = {};
     for (let i = 1; i <= CONFIG.BACK_RANGE; i++) {
       const isTimeCandidate = backCandidates.includes(i);

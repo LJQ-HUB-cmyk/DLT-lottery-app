@@ -214,6 +214,11 @@ class LotteryAnalyzer {
       }
     }
     
+    // 数据顺序修正：数据文件是最新在前（line1=最新期），算法需要最旧在前（chronological order）
+    // 反转数组确保 historyData[0]=最旧期, historyData[n-1]=最新期
+    this.historyData.reverse();
+    console.log(`📊 数据顺序已修正: ${this.historyData.length}期, 最旧=${JSON.stringify(this.historyData[0]?.front?.slice(0,3))}... 最新=${JSON.stringify(this.historyData[this.historyData.length-1]?.front?.slice(0,3))}...`);
+
     // 数据加载完成后初始化分析器
     if (count > 0) {
       this._initializeAnalyzers();

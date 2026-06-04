@@ -88,13 +88,36 @@ export class DanTuoOptimizer {
 
     console.log('  区间频率:', zoneFrequencies);
 
-    // 计算每个候选拖码的综合评分（8维度）
-    // 权重体系：频率+动量15 + 区间分布20 + 条件概率25 + 遗漏偏离度15 + 关联性10 + 协同性10 + 历史相似度5 + 间距模式5 = 100
+    // 计算每个候选拖码的综合评分（8~10维度）
+    // 均衡/保守策略8维度：频率+动量15 + 区间分布20 + 条件概率25 + 遗漏偏离度15 + 关联性10 + 协同性10 + 历史相似度5 + 间距模式5 = 100
+    // 热号策略10维度：频率+动量15 + 热区趋势10 + 重号因子10 + 条件概率25 + 遗漏偏离度15 + 关联性10 + 协同性7 + 动量加速5 + 历史相似度3 + 冷却惩罚扣5 = 95~100
     // 获取条件概率和遗漏数据
     const conditionalProb = this.conditionalProbability.calculateConditionalProbability();
     const omission = this.omissionCalculator.calculateOmission();
     const correlationData = this.correlationAnalyzer.calculateNumberCorrelationWithTimeDecay();
     const avgFrontOmission = this.omissionCalculator.getAverageOmission('front');
+
+    // 热号策略专用数据
+    const repeatAnalysis = this.trendAnalyzer.analyzeRepeatNumbers();
+    const activeData = this.getActiveData();
+    const lastDraw = activeData.length > 0 ? activeData[activeData.length - 1] : null;
+    
+    // 热区趋势：近5期各区频率占比
+    const veryRecentCount = Math.min(5, activeData.length);
+    const veryRecentData = activeData.slice(-veryRecentCount);
+    const hotZoneRecentFreq = {};
+    for (let zone = 1; zone <= 7; zone++) hotZoneRecentFreq[zone] = 0;
+    for (const draw of veryRecentData) {
+      for (const num of draw.front) hotZoneRecentFreq[getZone(num)]++;
+    }
+    const totalHotZoneFreq = Object.values(hotZoneRecentFreq).reduce((a, b) => a + b, 0) || 1;
+    
+    // 动量加速度：近5期频率
+    const veryRecentFrontFreq = {};
+    for (let i = 1; i <= CONFIG.FRONT_RANGE; i++) veryRecentFrontFreq[i] = 0;
+    for (const draw of veryRecentData) {
+      for (const num of draw.front) veryRecentFrontFreq[num]++;
+    }
 
     // 归一化所需的统计量（提前计算避免重复）
     const maxFreq = Math.max(...Object.values(frontCounter));
@@ -134,18 +157,34 @@ export class DanTuoOptimizer {
       const normalizedMomentum = maxMomentum > 0 ? momentum / maxMomentum : 0;
       score += freqBase + Math.max(0, normalizedMomentum) * 5;
 
-      // 2. 区间分布分（20分满分）
-      const danInThisZone = danZoneCount[zone] || 0;
-      const zoneFreqRank = Object.entries(zoneFrequencies)
-        .sort((a, b) => b[1] - a[1])
-        .findIndex(([z]) => parseInt(z) === zone);
-
-      if (danInThisZone === 0) {
-        if (zoneFreqRank < 4) score += 20;
-        else if (zoneFreqRank < 6) score += 12;
-        else score += 6;
+      // 2. 区间/热区评分（热号：热区趋势10分+重号因子10分=20分；均衡/保守：区间分布20分）
+      if (strategy === 'hot') {
+        // 热区趋势加分（10分满分）：号码所在区近期频率占比越高→该区越热→加分
+        const zoneRatio = totalHotZoneFreq > 0 ? hotZoneRecentFreq[zone] / totalHotZoneFreq : 0;
+        const idealZoneRatio = 1 / 7;
+        const hotZoneBonus = zoneRatio > idealZoneRatio
+          ? Math.min((zoneRatio - idealZoneRatio) / (1 - idealZoneRatio) * 10, 10)
+          : 0;
+        score += hotZoneBonus;
+        
+        // 重号因子加分（10分满分）：上期出现的号码与胆码共现加分
+        // 大乐透前区约30-40%重号率，拖码如为上期号码更可能再次出现
+        if (lastDraw && lastDraw.front.includes(tuoNum)) {
+          score += Math.min(repeatAnalysis.frontRepeatRate * 10, 10);
+        }
       } else {
-        score += 8 - danInThisZone * 2;
+        const danInThisZone = danZoneCount[zone] || 0;
+        const zoneFreqRank = Object.entries(zoneFrequencies)
+          .sort((a, b) => b[1] - a[1])
+          .findIndex(([z]) => parseInt(z) === zone);
+
+        if (danInThisZone === 0) {
+          if (zoneFreqRank < 4) score += 20;
+          else if (zoneFreqRank < 6) score += 12;
+          else score += 6;
+        } else {
+          score += 8 - danInThisZone * 2;
+        }
       }
 
       // 3. 条件概率加成（25分满分）- 归一化，提升为主导维度
@@ -187,7 +226,7 @@ export class DanTuoOptimizer {
       const normalizedCorr = maxCorr > 0 ? rawCorr / maxCorr : 0;
       score += normalizedCorr * 10;
 
-      // 6. 协同评分加成（10分满分）- 与胆码的和值/跨度/奇偶协调性
+      // 6. 协同评分加成（热号7分，均衡/保守10分）- 与胆码的和值/跨度协调性
       // 和值协调：拖码加入后使总和接近历史均值
       const sumTrend = this.trendAnalyzer.analyzeSumTrend();
       const currentDanSum = danNumbers.reduce((a, b) => a + b, 0);
@@ -195,22 +234,28 @@ export class DanTuoOptimizer {
       const sumWithTuo = currentDanSum + tuoNum;
       const sumDiff = Math.abs(sumWithTuo - targetTotalSum / 5 * (danNumbers.length + 1));
       const maxSumDiff = targetTotalSum * 0.5;
-      const sumScore = maxSumDiff > 0 ? Math.max(0, 1 - sumDiff / maxSumDiff) * 4 : 2;
+      const sumScoreMax = strategy === 'hot' ? 3 : 4;
+      const sumScore = maxSumDiff > 0 ? Math.max(0, 1 - sumDiff / maxSumDiff) * sumScoreMax : 2;
       score += sumScore;
 
-      // 奇偶协调：热号策略跳过，让趋势自然决定
-      if (strategy !== 'hot') {
-        const danOddCount = danNumbers.filter(n => n % 2 !== 0).length;
-        const isOdd = tuoNum % 2 !== 0;
-        const totalWithTuo = danNumbers.length + 1; // 胆码+当前拖码
-        const newOddCount = danOddCount + (isOdd ? 1 : 0);
-        // 理想奇数占比: 2/5=0.4 或 3/5=0.6，即奇数2-3个
+      // 奇偶协调：所有策略评估奇偶协调性（热号仅评估不强制，均衡/保守加分激励）
+      const danOddCount = danNumbers.filter(n => n % 2 !== 0).length;
+      const isOdd = tuoNum % 2 !== 0;
+      const totalWithTuo = danNumbers.length + 1;
+      const newOddCount = danOddCount + (isOdd ? 1 : 0);
+      if (strategy === 'hot') {
+        // 热号策略：仅评估极端情况（全奇或全偶时轻微扣分）
+        if (newOddCount === 0 || newOddCount === totalWithTuo) {
+          score -= 2; // 极端奇偶比轻微扣分
+        }
+      } else {
+        // 均衡/保守策略：理想奇偶比加分
         const idealOddMin = Math.round(totalWithTuo * 0.4);
         const idealOddMax = Math.round(totalWithTuo * 0.6);
         if (newOddCount >= idealOddMin && newOddCount <= idealOddMax) {
-          score += 3; // 达到理想奇偶比2:3或3:2
+          score += 3;
         } else if (Math.abs(newOddCount - totalWithTuo / 2) <= 1) {
-          score += 1; // 接近理想但未达标
+          score += 1;
         }
       }
 
@@ -220,15 +265,49 @@ export class DanTuoOptimizer {
       const spanAnalysis = this.trendAnalyzer.analyzeSpan();
       const spanDiff = Math.abs(spanWithTuo - spanAnalysis.avgFrontSpan);
       const maxSpanDiff = spanAnalysis.avgFrontSpan * 0.3;
-      const spanBonus = maxSpanDiff > 0 ? Math.max(0, 1 - spanDiff / maxSpanDiff) * 3 : 1.5;
+      const spanScoreMax = strategy === 'hot' ? 2 : 3;
+      const spanBonus = maxSpanDiff > 0 ? Math.max(0, 1 - spanDiff / maxSpanDiff) * spanScoreMax : 1;
       score += spanBonus;
+      
+      // 热号策略：动量加速度加分（5分满分）
+      // 近5期动量 > 近15期动量 → 正在加速升温 → 加分
+      if (strategy === 'hot') {
+        const veryRecentRate = (veryRecentFrontFreq[tuoNum] || 0) / veryRecentCount;
+        const mediumRecentRate = (recentFreq.front[tuoNum] || 0) / (recentFreq.recentCount || 15);
+        const acceleration = veryRecentRate - mediumRecentRate;
+        const maxAcceleration = Math.max(
+          ...candidateNumbers.map(n => {
+            const vr = (veryRecentFrontFreq[n] || 0) / veryRecentCount;
+            const mr = (recentFreq.front[n] || 0) / (recentFreq.recentCount || 15);
+            return vr - mr;
+          }).filter(a => a > 0)
+        );
+        if (acceleration > 0 && maxAcceleration > 0) {
+          score += (acceleration / maxAcceleration) * 5;
+        }
+      }
+      
+      // 热号策略：冷却惩罚（最多扣5分）
+      // 高频号（历史频率 > 平均）且当前遗漏 > 平均遗漏 → 正在冷却 → 扣分
+      if (strategy === 'hot') {
+        const totalFrontFreq = Object.values(frontCounter).reduce((a, b) => a + b, 0);
+        const avgFreqPerNum = totalFrontFreq / CONFIG.FRONT_RANGE;
+        const numFreq = frontCounter[String(tuoNum)] || frontCounter[tuoNum] || 0;
+        const currentOmission = omission.front[tuoNum] || 0;
+        if (numFreq > avgFreqPerNum && currentOmission > avgFrontOmission) {
+          const coolingDegree = (currentOmission - avgFrontOmission) / avgFrontOmission;
+          const freqHeat = numFreq / avgFreqPerNum;
+          const penalty = Math.min(coolingDegree * freqHeat * 2, 5);
+          score -= penalty;
+        }
+      }
 
-      // 7. 历史形态相似度加成（5分满分）- 归一化
+      // 7. 历史形态相似度加成（热号3分，均衡/保守5分）- 归一化
       const historyData = this.getActiveData();
       const similarityBonus = HistoricalSimilarity.computeNumberSimilarityBonus(
         tuoNum, true, danNumbers, [], historyData
       );
-      score += similarityBonus * 5;
+      score += similarityBonus * (strategy === 'hot' ? 3 : 5);
 
       // 8. 号码间距模式加成（5分满分）- 独立性维度
       // 基于拖码与胆码之间差值的分布模式，与频率/遗漏/关联性低相关
@@ -277,34 +356,42 @@ export class DanTuoOptimizer {
     const remaining = [...weightedCandidates];
     
     // 动态权重调整函数：根据当前组合不足的维度，提升对应号码的权重
-    // 热号策略：不做奇偶/区间均衡补偿，让趋势自然决定分布
+    // 热号策略：防止极端奇偶比（0:5或5:0），其余让趋势决定
     // 均衡/保守策略：补充奇偶和区间覆盖
     const adjustDynamicWeight = (candidate, currentDan, currentTuo) => {
       const allSelected = [...currentDan, ...currentTuo];
       let bonus = 1.0; // 基础权重倍率
           
+      // 所有策略：防止极端奇偶比
+      const currentOdd = allSelected.filter(n => n % 2 !== 0).length;
+      const currentEven = allSelected.length - currentOdd;
+      const targetSize = 5;
+      
+      // 热号策略：仅防止全奇或全偶（极端情况）
+      if (strategy === 'hot' && allSelected.length >= 2) {
+        if ((currentOdd === 0 && candidate.number % 2 !== 0) ||
+            (currentEven === 0 && candidate.number % 2 === 0)) {
+          bonus += 0.5; // 防止极端奇偶比
+        }
+      }
+      
+      // 均衡/保守策略：完整的奇偶和区间均衡
       if (strategy !== 'hot') {
-        // 1. 奇偶平衡：如果当前组合奇偶偏斜，提升缺失奇偶号码权重
-        const currentOdd = allSelected.filter(n => n % 2 !== 0).length;
-        const currentEven = allSelected.length - currentOdd;
-        const targetSize = 5; // 最终5个号码
         if (allSelected.length < targetSize) {
-          // 理想2:3或3:2，当前偏斜时需要补充
           const idealOddMin = Math.round(targetSize * 0.4);
           const idealOddMax = Math.round(targetSize * 0.6);
           if (currentOdd < idealOddMin && candidate.number % 2 !== 0) {
-            bonus += 0.5; // 奇数不足时，奇数号码权重+50%
+            bonus += 0.5;
           } else if (currentEven < idealOddMin && candidate.number % 2 === 0) {
-            bonus += 0.5; // 偶数不足时，偶数号码权重+50%
+            bonus += 0.5;
           }
         }
             
-        // 2. 区间覆盖：如果当前组合缺失某些区，提升缺区号码权重
         const coveredZones = new Set(allSelected.map(n => getZone(n)));
         if (allSelected.length < targetSize && coveredZones.size < 4) {
           const candidateZone = getZone(candidate.number);
           if (!coveredZones.has(candidateZone)) {
-            bonus += 0.3; // 缺区的号码权重+30%
+            bonus += 0.3;
           }
         }
       }

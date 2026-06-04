@@ -258,14 +258,18 @@ export class BayesianDanTuoModel {
       };
     });
 
-    const danSelected = BayesianDanTuoModel._weightedSample(allCandidates, backDanCount);
+    // 后区胆码：确定性推荐（直接取评分最高），确保推荐结果稳定可预期
+    // 后区12选1的特性适合确定性策略，每次推荐都是同一号码
+    const danSelected = allCandidates.slice(0, backDanCount).map(c => c.number);
 
     const tuoAll = Array.from({ length: CONFIG.BACK_RANGE }, (_, i) => i + 1)
       .filter(n => !danSelected.includes(n));
     const tuoCandidates = tuoAll.map(n => ({
       number: n, posteriorScore: posteriorBack[n] || 0
     }));
-    const tuoSelected = BayesianDanTuoModel._weightedSample(tuoCandidates, 4);
+    // 后区拖码：确定性推荐（按评分排序取前4个）
+    const tuoSelected = tuoCandidates.sort((a, b) => b.posteriorScore - a.posteriorScore)
+      .slice(0, 4).map(c => c.number);
 
     return {
       danSelected: danSelected.sort((a, b) => a - b),

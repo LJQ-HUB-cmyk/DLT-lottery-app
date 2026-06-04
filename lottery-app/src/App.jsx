@@ -909,11 +909,11 @@ function App() {
       let backInfo = '';
           
       if (isFullDrag) {
-        backDesc = `；后区一胆全拖：胆码${recommendedBackDan[0]}（加权随机采样），拖码1-12除胆码外全部选择`;
-        backInfo = `推荐后区胆码：${backDanStr}（加权随机采样）。后区各号码被选为胆码的概率排名：${danProbNote}等。其余11个号码全拖。`;
+        backDesc = `；后区一胆全拖：胆码${recommendedBackDan[0]}（确定性推荐），拖码1-12除胆码外全部选择`;
+        backInfo = `推荐后区胆码：${backDanStr}（确定性推荐）。后区各号码被选为胆码的概率排名：${danProbNote}等。其余11个号码全拖。`;
       } else {
-        backDesc = `；后区：胆码${backDanStr}（加权随机采样），拖码${backTuoStr}`;
-        backInfo = `推荐后区胆码：${backDanStr}（加权随机采样）。后区各号码被选为胆码的概率排名：${danProbNote}等。拖码概率排名：${tuoProbNote}等。每次推荐通过加权随机采样选择，高分号码概率更高但非固定，您也可参考概率排名自行选择。`;
+        backDesc = `；后区：胆码${backDanStr}（确定性推荐），拖码${backTuoStr}`;
+        backInfo = `推荐后区胆码：${backDanStr}（确定性推荐）。后区各号码被选为胆码的概率排名：${danProbNote}等。拖码概率排名：${tuoProbNote}等。每次推荐直接选择评分最高的号码，结果稳定可预期。`;
       }
           
       return { backDesc, backInfo, recommendedBackDan, recommendedBackTuo, backDanProbInfo, backTuoProbInfo };

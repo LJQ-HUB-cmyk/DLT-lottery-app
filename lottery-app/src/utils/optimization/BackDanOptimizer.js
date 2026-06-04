@@ -1,0 +1,204 @@
+/**
+ * 后区胆码智能推荐优化器
+ * 融合：条件概率 + 遗漏回归 + 时间衰减 + 频率 + 区间分布
+ */
+
+import { CONFIG } from '../core/Config.js';
+
+export class BackDanOptimizer {
+  /**
+   * 优化后区胆码推荐（多维度智能评分）
+   * @param {Object} analyzer - LotteryAnalyzer实例
+   * @param {number} backDanCount - 需要推荐的胆码数量
+   * @returns {number[]} 推荐的后区胆码
+   */
+  static optimize(analyzer, backDanCount = 1, strategy = 'balanced') {
+    console.log('🎯 后区胆码智能推荐（多维度评分）');
+    
+    // 1. 获取条件概率
+    const conditionalProb = analyzer.conditionalProbability.calculateConditionalProbability();
+    const confidence = conditionalProb.confidence || 0.3;
+    
+    // 2. 获取遗漏数据
+    const omissionData = analyzer.omissionCalculator.calculateOmission();
+    const avgBackOmission = analyzer.omissionCalculator.getAverageOmission('back');
+    const omissionStd = analyzer.omissionCalculator.getOmissionStd('back');
+    
+    // 3. 获取频率数据（全量 + 近期趋势动量）
+    const [, backCounter] = analyzer.frequencyAnalyzer.analyzeFrequency();
+    const maxFreq = Math.max(...Object.values(backCounter));
+    const recentFreq = analyzer.frequencyAnalyzer.analyzeRecentFrequency();
+    
+    // 4. 获取时间衰减权重（归一化到0-1范围）
+    const rawTimeWeights = analyzer.calculateTimeDecayWeights();
+    const maxBackTimeWeight = Math.max(...Object.values(rawTimeWeights.back));
+    const timeWeights = {}; // 归一化后的权重
+    for (let i = 1; i <= CONFIG.BACK_RANGE; i++) {
+      timeWeights[i] = maxBackTimeWeight > 0 ? (rawTimeWeights.back[i] || 0) / maxBackTimeWeight : 0;
+    }
+    
+    // 5. 预计算区间形态数据（维度5需要）
+    const firstHalfFreq = Array.from({ length: 6 }, (_, i) => i + 1)
+      .reduce((sum, n) => sum + (backCounter[String(n)] || backCounter[n] || 0), 0);
+    const secondHalfFreq = Array.from({ length: 6 }, (_, i) => i + 7)
+      .reduce((sum, n) => sum + (backCounter[String(n)] || backCounter[n] || 0), 0);
+    const totalFreq = firstHalfFreq + secondHalfFreq;
+
+    // 6. 计算每个号码的综合得分
+    // 评分体系：5维度均衡， 条件概率30 + 遗漏偏离度20 + 频率+动量15 + 时间衰减15 + 形态适应20 = 总分100分
+    const scored = [];
+    for (let num = 1; num <= CONFIG.BACK_RANGE; num++) {
+      let score = 0;
+      
+      // 预先计算频率（维度2和维度3都需要）
+      const freq = backCounter[String(num)] || backCounter[num] || 0;
+      
+      // 维度1: 条件概率得分（30分满分）- 归一化，提升为主导维度
+      const condProb = conditionalProb.back[num] || 0;
+      const maxCondProb = Math.max(...Object.values(conditionalProb.back));
+      const normalizedCondProb = maxCondProb > 0 ? condProb / maxCondProb : 0;
+      score += normalizedCondProb * 30;
+            
+      // 维度2: 遗漏偏离度评分（20分满分）- 偏离度而非偏向回归
+      const currentOmission = omissionData.back[num] || 0;
+      const omissionDeviation = currentOmission - avgBackOmission;
+      const absDeviation = Math.abs(omissionDeviation);
+      // 偏离度基础分：归一化到全局最大绝对偏离（10分满分）
+      const maxAbsDeviation = Math.max(
+        ...Object.values(omissionData.back).map(o => Math.abs((o || 0) - avgBackOmission))
+      );
+      const normalizedAbsDeviation = maxAbsDeviation > 0 ? absDeviation / maxAbsDeviation : 0;
+      score += normalizedAbsDeviation * 10;
+      // 策略加成（10分）：热号偏向低遗漏，均衡/保守偏向高遗漏
+      if (strategy === 'hot') {
+        if (omissionDeviation < 0) {
+          const maxNegDeviation = Math.max(
+            ...Object.values(omissionData.back)
+              .map(o => (o || 0) - avgBackOmission)
+              .filter(d => d < 0)
+              .map(d => Math.abs(d))
+          );
+          const hotness = maxNegDeviation > 0 ? Math.abs(omissionDeviation) / maxNegDeviation : 0;
+          score += hotness * 10;
+        }
+      } else {
+        if (omissionDeviation > 0) {
+          const maxPosDeviation = Math.max(...Object.values(omissionData.back).map(o => (o || 0) - avgBackOmission).filter(d => d > 0));
+          const posNormalized = maxPosDeviation > 0 ? omissionDeviation / maxPosDeviation : 0;
+          let strategyBonus = posNormalized * 7;
+          if (omissionDeviation > omissionStd * 2) {
+            strategyBonus += 3;
+          }
+          // 频率惩罚：低频号码(11、12)的遗漏回归得分打折
+          const totalBackFreq = Object.values(backCounter).reduce((sum, f) => sum + f, 0);
+          const globalFreqRatio = totalBackFreq > 0 ? freq / totalBackFreq : 0;
+          const avgFreqRatio = 1 / CONFIG.BACK_RANGE;
+          if (globalFreqRatio < avgFreqRatio) {
+            strategyBonus *= globalFreqRatio / avgFreqRatio;
+          }
+          score += strategyBonus;
+        }
+      }
+            
+      // 维度3: 频率+动量得分（15分满分）- 降低权重减少与遗漏抵消
+      const freqBase = maxFreq > 0 ? (freq / maxFreq) * 10 : 0; // 基础频率 10分
+      const momentum = recentFreq.backMomentum[num] || 0;
+      const maxMomentum = Math.max(...Object.values(recentFreq.backMomentum).map(m => Math.abs(m))); 
+      const normalizedMomentum = maxMomentum > 0 ? momentum / maxMomentum : 0;
+      score += freqBase + Math.max(0, normalizedMomentum) * 5; // 动量 5分
+            
+      // 维度4: 时间衰减得分（15分满分）- 已归一化
+      const timeWeight = timeWeights[num] || 0;
+      score += timeWeight * 15;
+            
+      // 维度5: 区间形态适应性（20分满分）- 提升权重
+      // 后区1-6/7-12天然分布不均匀， 形态适应自然分布的号码得分更高
+      const isFirstHalf = num <= 6;
+      const halfFreqRatio = totalFreq > 0 ? firstHalfFreq / totalFreq : 0.5;
+      // 形态适应加成: 号码所属区间的实际频率占比越高于理论均值(0.5)越多 → 形态匹配越好
+      const morphologyBonus = isFirstHalf
+        ? Math.min((halfFreqRatio - 0.5) * 30, 20)
+        : Math.min((1 - halfFreqRatio) * 30, 20);
+      score += morphologyBonus;
+      
+      scored.push({
+        number: num,
+        score,
+        condProb,
+        omission: currentOmission,
+        freq,
+        timeWeight
+      });
+    }
+    
+    // 加权随机采样：高分号码被选中概率更高，但不是100%
+    // 每次推荐都会有合理的变化，避免每天推荐相同号码
+    const minScore = Math.min(...scored.map(s => s.score));
+    const scoreRange = Math.max(...scored.map(s => s.score)) - minScore;
+    
+    // 给每个号码一个非零的权重（最低也有5%的机会），高分号码权重更高
+    const weights = scored.map(s => {
+      const normalized = scoreRange > 0 ? (s.score - minScore) / scoreRange : 0.5;
+      // 线性映射：最低0.05（5%基础概率），最高1.0（满分概率）
+      return {
+        number: s.number,
+        weight: 0.05 + normalized * 0.95,
+        score: s.score,
+        condProb: s.condProb,
+        omission: s.omission,
+        freq: s.freq,
+        timeWeight: s.timeWeight
+      };
+    });
+    
+    // 加权随机采样选出 backDanCount 个号码
+    const selected = [];
+    const remaining = [...weights];
+    
+    for (let i = 0; i < backDanCount && remaining.length > 0; i++) {
+      // 计算当前剩余号码的总权重
+      const totalWeight = remaining.reduce((sum, w) => sum + w.weight, 0);
+      
+      // 加权随机选择一个号码
+      let random = Math.random() * totalWeight;
+      let chosenIdx = 0;
+      for (let j = 0; j < remaining.length; j++) {
+        random -= remaining[j].weight;
+        if (random <= 0) {
+          chosenIdx = j;
+          break;
+        }
+      }
+      
+      const chosen = remaining[chosenIdx];
+      selected.push(chosen.number);
+      remaining.splice(chosenIdx, 1); // 移除已选号码
+    }
+    
+    // 输出Top候选详情
+    const topCandidates = [...weights].sort((a, b) => b.weight - a.weight).slice(0, 5);
+    const totalWeightSum = weights.reduce((sum, w) => sum + w.weight, 0);
+    const probabilityInfo = topCandidates.map(w => {
+      const actualProb = totalWeightSum > 0 ? (w.weight / totalWeightSum * 100) : 0;
+      return {
+        number: w.number,
+        probability: actualProb,
+        score: w.score,
+        condProb: w.condProb,
+        omission: w.omission,
+        freq: w.freq
+      }; 
+    });
+    
+    console.log('✅ 后区胆码推荐完成:', selected.sort((a, b) => a - b));
+    console.log('  实际选择:', selected.map(n => `#${n}`).join(', '), '(加权随机采样)');
+    console.log('  Top5概率排名:', probabilityInfo.map(p => 
+      `#${p.number}(概率${p.probability.toFixed(1)}%, 条件概率${p.condProb.toFixed(3)}, 遗漏${p.omission}, 频率${p.freq}, 总分${p.score.toFixed(2)})`
+    ).join(', '));
+    
+    return {
+      selected: selected.sort((a, b) => a - b),
+      probabilityInfo: probabilityInfo
+    };
+  }
+}

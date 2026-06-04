@@ -1,9 +1,101 @@
 import { useState, useEffect } from 'react';
-import LotteryAnalyzer from './utils/lotteryLogic';
+import LotteryAnalyzer from './utils/LotteryAnalyzer.js';
+import { BackDanOptimizer } from './utils/optimization/BackDanOptimizer.js';
+import { FrontDanOptimizer } from './utils/optimization/FrontDanOptimizer.js';
+import { BackTuoOptimizer } from './utils/optimization/BackTuoOptimizer.js';
+import { CombinationValidator } from './utils/optimization/CombinationValidator.js';
+import { ConfidenceCalculator } from './utils/optimization/ConfidenceCalculator.js';
 import { trackNumberGeneration, trackCopy, trackSave, trackDataUpdate, trackModelSelection } from './utils/baiduAnalytics';
 import AuthGuard from './components/AuthGuard';
 import DataVisualization from './components/DataVisualization';
+import ShuangSeQiuPage from './components/ShuangSeQiuPage';
 import './App.css';
+
+// 隐藏页面进入机制：连续点击标题7次（3秒内）可进入福彩双色球玩法页面
+let titleClickCount = 0;
+let titleClickTimer = null;
+
+// 辅助模型推荐卡片组件（可展开/收起）
+function ModelRecommendationCard({ rec, info, formatNums }) {
+  const [expanded, setExpanded] = useState(false);
+  const borderColors = { bayesian: '#9b59b6', normal: '#3498db', zhouyi: '#e67e22' };
+  const modelKey = info.name === '贝叶斯动态' ? 'bayesian' : info.name === '正态分布' ? 'normal' : 'zhouyi';
+  const borderColor = borderColors[modelKey] || '#9b59b6';
+
+  // 计算下次开奖具体日期
+  const nextDrawDateStr = (() => {
+    const dayNames = { 1: '周一', 3: '周三', 6: '周六' };
+    const now = new Date();
+    const weekday = now.getDay();
+    const drawDays = [1, 3, 6];
+    let minDiff = 7, nextDrawDay = 1;
+    for (const d of drawDays) {
+      let diff = d - weekday;
+      if (diff < 0) diff += 7; // 只有负数才加7
+      // 如果diff=0（今天就是开奖日），检查是否已开奖
+      if (diff === 0 && (now.getHours() > 21 || (now.getHours() === 21 && now.getMinutes() >= 0))) diff = 7; // 21:00后认为已开奖，找下一期
+      if (diff < minDiff) { minDiff = diff; nextDrawDay = d; }
+    }
+    const nextDate = new Date(now);
+    nextDate.setDate(nextDate.getDate() + minDiff);
+    const y = nextDate.getFullYear();
+    const m = String(nextDate.getMonth() + 1).padStart(2, '0');
+    const d = String(nextDate.getDate()).padStart(2, '0');
+    return `${y}/${m}/${d}（${dayNames[nextDrawDay]}）`;
+  })();
+
+  return (
+    <div className="back-recommendation" style={{marginBottom: '8px', borderLeft: `3px solid ${borderColor}`}}>
+      <div className="back-rec-header">
+        <span className="back-rec-icon">{info.icon}</span>
+        <span className="back-rec-title" style={{color: borderColor}}>{info.name}模型</span>
+        <button 
+          className="expand-btn" 
+          onClick={() => setExpanded(!expanded)}
+          style={{
+            marginLeft: 'auto', padding: '0 8px', fontSize: '0.8em',
+            background: 'transparent', border: 'none',
+            cursor: 'pointer', color: borderColor, transition: 'opacity 0.2s',
+            fontWeight: '500'
+          }}
+        >
+          {expanded ? '收起' : '点击打开详情'}
+        </button>
+      </div>
+      <div style={{fontSize: '0.75em', color: '#999', marginBottom: '4px', marginLeft: '24px'}}>
+        {nextDrawDateStr}开奖
+      </div>
+      <p className="back-rec-info" style={{fontWeight: '500'}}>
+        前区胆码: <strong>{formatNums(rec.danSelected)}</strong> | 
+        前区拖码: <strong>{formatNums(rec.tuoSelected)}</strong> | 
+        后区: <strong>{rec.back ? formatNums(rec.back.danSelected) + ' + ' + formatNums(rec.back.tuoSelected) : '--'}</strong>
+      </p>
+      {expanded && (
+        <div style={{marginTop: '8px', paddingTop: '8px', borderTop: '1px dashed #eee'}}>
+          <p className="back-rec-info" style={{fontSize: '0.85em', color: '#666', marginBottom: '6px'}}>
+            {rec.description}
+          </p>
+          {info.strengths && info.strengths.length > 0 && (
+            <div style={{fontSize: '0.8em', color: '#27ae60', marginBottom: '2px'}}>
+              ✅ 优势:
+              <ul style={{margin: '4px 0 0 16px', padding: 0}}>
+                {info.strengths.map((s, i) => <li key={i}>{s}</li>)}
+              </ul>
+            </div>
+          )}
+          {info.weaknesses && info.weaknesses.length > 0 && (
+            <div style={{fontSize: '0.8em', color: '#e74c3c'}}>
+              ️ 局限:
+              <ul style={{margin: '4px 0 0 16px', padding: 0}}>
+                {info.weaknesses.map((w, i) => <li key={i}>{w}</li>)}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 // 动态导入外部数据文件（如果存在）
 let externalDataPromise = null;
@@ -88,7 +180,8 @@ const modelNames = {
   bayesian: '贝叶斯动态',
   rotation: '旋转矩阵',
   zhouyi: '周易时空',
-  hybrid: '混合模型'
+  hybrid: '混合模型',
+  zone_frequency: '区间频率分析'  // 新增：区间频率分析算法
 };
 
 const modelDescriptions = {
@@ -101,7 +194,8 @@ const modelDescriptions = {
   bayesian: '使用贝叶斯定理计算条件概率，动态调整预测权重。结合先验知识（如冷热状态）和新的开奖数据，不断修正每个号码的后验概率。',
   rotation: '运用组合数学旋转矩阵，多策略轮换提高覆盖度。通过特定的数学矩阵排列，确保在投入相同注数的情况下，尽可能覆盖更多的中奖组合。',
   zhouyi: '结合周易卦象与时空因子，传统智慧与现代算法融合。将开奖日期、期号等转化为易学参数，配合五行生克原理进行选号。',
-  hybrid: '融合周易、贝叶斯、旋转矩阵三大模型优势，采用投票机制和智能加权。多数模型认可的号码优先，通过多维度评分筛选高质量组合，实现前后区均衡命中。'
+  hybrid: '融合周易、贝叶斯、旋转矩阵三大模型优势，采用投票机制和智能加权。多数模型认可的号码优先，通过多维度评分筛选高质量组合，实现前后区均衡命中。',
+  zone_frequency: '区间频率分析算法：前区分7区（每区5号），后区分2区（每区6号）。统计各区间的历史出现频率，选出最热区间，再从这些区间中选择高频号码，实现精准的区间定位。'
 };
 
 function App() {
@@ -114,6 +208,7 @@ function App() {
   const [showHistory, setShowHistory] = useState(false);
   const [groupsPerModel, setGroupsPerModel] = useState(5);
   const [recommendSampleSize, setRecommendSampleSize] = useState(80); // 推荐算法样本量
+  const [dataWindow, setDataWindow] = useState(60); // 历史数据窗口：0=全部，N=最近N期（默认60期）
   const [copySuccess, setCopySuccess] = useState(false);
   const [currentRecommendation, setCurrentRecommendation] = useState(null); // 当前推荐结果
   
@@ -132,11 +227,40 @@ function App() {
   const [useDoubleZone, setUseDoubleZone] = useState(false); // 是否使用双区胆拖
   const [useBackFullDrag, setUseBackFullDrag] = useState(false); // 是否使用后区一胆全拖
   const [dantuoRecommendation, setDantuoRecommendation] = useState(null); // 胆拖推荐
+  const [tuoCount, setTuoCount] = useState(10); // 前区拖码个数（默认10个）
   const [recommendStrategy, setRecommendStrategy] = useState('hot'); // 推荐策略: hot-热号, balanced-均衡, conservative-保守
   const [hasGeneratedToday, setHasGeneratedToday] = useState(false); // 今日是否已生成（用户主动操作）
   const [useBackZoneDanTuo, setUseBackZoneDanTuo] = useState(false); // 前区胆拖模式下是否使用后区胆拖
+  const [selectionMode, setSelectionMode] = useState('dan'); // 选择模式: dan-胆码, tuo-拖码
+  const [backSelectionMode, setBackSelectionMode] = useState('dan'); // 后区选择模式
+  const [copyDanTuoSuccess, setCopyDanTuoSuccess] = useState(false); // 复制成功状态
+  const [modelRecommendations, setModelRecommendations] = useState(null); // 辅助模型推荐结果
+  const [showSSQPage, setShowSSQPage] = useState(false); // 是否显示福彩双色球玩法页面
 
-  // 从数据中获取最后一组（最新一期）号码
+  // 检查 URL hash 是否为 #ssq，用于隐藏页面直接访问
+  useEffect(() => {
+    const checkHash = () => {
+      if (window.location.hash === '#ssq') {
+        setShowSSQPage(true);
+      }
+    };
+    checkHash();
+    window.addEventListener('hashchange', checkHash);
+    return () => window.removeEventListener('hashchange', checkHash);
+  }, []);
+
+  // 隐藏页面 - 标题点击处理
+  const handleTitleClick = () => {
+    titleClickCount++;
+    if (titleClickTimer) clearTimeout(titleClickTimer);
+    if (titleClickCount >= 7) {
+      titleClickCount = 0;
+      setShowSSQPage(true);
+      window.location.hash = '#ssq';
+      return;
+    }
+    titleClickTimer = setTimeout(() => { titleClickCount = 0; }, 3000);
+  };
   const getLatestDrawFromData = () => {
     if (!analyzer.historyData || analyzer.historyData.length === 0) return null;
     
@@ -213,25 +337,43 @@ function App() {
     
     // 追踪数据加载
     trackDataUpdate(analyzer.historyData.length);
-  };  const clearCache = () => {
+  };
+
+  const clearCache = () => {
     localStorage.removeItem('lottery_data');
     setDataInput(defaultData);
   };
 
   // 立即分析推荐模型
   const handleAnalyzeRecommendation = () => {
+    console.log('🔴 按钮被点击了！');
+    console.log('analyzer.historyData 长度:', analyzer.historyData.length);
+    
     const latestDraw = getLatestDrawFromData();
+    console.log('latestDraw:', latestDraw);
+    
     if (!latestDraw) {
-      alert('请先加载历史数据！');
+      alert('请先加载历史数据！当前数据量: ' + analyzer.historyData.length);
       return;
     }
     
-    // 清除之前的推荐结果，触发重新计算
-    setCurrentRecommendation(null);
-    setTimeout(() => {
+    console.log('🔍 开始分析推荐模型...');
+    console.log('最新开奖:', latestDraw);
+    console.log('样本量:', recommendSampleSize);
+    console.log('数据窗口:', dataWindow);
+    
+    // 设置数据窗口
+    analyzer.setDataWindow(dataWindow);
+    
+    // 立即执行分析，不使用setTimeout
+    try {
       const recommendation = analyzer.analyzeAndRecommendModel(latestDraw, recommendSampleSize);
+      console.log('✅ 推荐结果:', recommendation);
       setCurrentRecommendation(recommendation);
-    }, 100);
+    } catch (error) {
+      console.error('❌ 分析失败:', error);
+      alert('分析失败：' + error.message);
+    }
   };
 
   // 加载今日缓存
@@ -300,7 +442,9 @@ function App() {
 
   // 重新生成号码（手动刷新）
   const handleRegenerate = () => {
+    console.log('🔄 重新生成按钮被点击');
     if (confirm('确定要重新生成吗？这将覆盖当前号码。')) {
+      console.log('✅ 用户确认重新生成');
       const newRefreshCount = refreshCount + 1;
       setIsGenerating(true);
       
@@ -308,44 +452,37 @@ function App() {
         const groups = groupsPerModel || 5;
         const results = [];
         selectedModels.forEach(model => {
-          // 旋转矩阵特殊处理：一次性生成多组
+          // 旋转矩阵特殊处理：使用去重生成
           if (model === 'rotation') {
-            const rotationResults = analyzer.generateRotationMatrixPrediction(groups);
-            if (Array.isArray(rotationResults)) {
-              rotationResults.forEach((group, idx) => {
-                results.push({
-                  model,
-                  groupNum: idx + 1,
-                  front: group.front,
-                  back: group.back
-                });
-              });
-            }
-          } else {
-            // 其他模型：按组数循环生成
-            for (let i = 0; i < groups; i++) {
-              let comb;
-              if (model === 'omission') comb = analyzer.generateOmissionBasedPrediction();
-              else if (model === 'time_decay') comb = analyzer.generateTimeDecayPrediction();
-              else if (model === 'bayesian') comb = analyzer.generateBayesianPrediction();
-              else if (model === 'zhouyi') comb = analyzer.generateZhouyiPrediction(i); // 周易不缓存，每次都重新生成
-              else if (model === 'hybrid') comb = analyzer.generateHybridPrediction();
-              else comb = analyzer.generateStatisticalPrediction(model);
-              
+            const rotationResults = analyzer.generateUniqueRotationGroups(groups);
+            rotationResults.forEach((group, idx) => {
               results.push({
                 model,
-                groupNum: i + 1,
-                front: comb.slice(0, 5),
-                back: comb.slice(5)
+                groupNum: idx + 1,
+                front: group.front,
+                back: group.back
               });
-            }
+            });
+          } else {
+            // 其他模型：使用多组去重生成，避免后区重复
+            const uniqueGroups = analyzer.generateUniqueGroups(model, groups);
+            uniqueGroups.forEach((group, idx) => {
+              results.push({
+                model,
+                groupNum: idx + 1,
+                front: group.front,
+                back: group.back
+              });
+            });
           }
           
           // 追踪每个模型的生成
           trackNumberGeneration(model, groups);
         });
         
+        console.log('📊 生成的结果数量:', results.length);
         setPredictions(results);
+        console.log('✅ predictions状态已更新');
         setCopySuccess(false);
         setHasGeneratedToday(true);
         setRefreshCount(newRefreshCount);
@@ -370,37 +507,28 @@ function App() {
       const groups = groupsPerModel || 5;
       const results = [];
       selectedModels.forEach(model => {
-        // 旋转矩阵特殊处理：一次性生成多组
+        // 旋转矩阵特殊处理：使用去重生成
         if (model === 'rotation') {
-          const rotationResults = analyzer.generateRotationMatrixPrediction(groups);
-          if (Array.isArray(rotationResults)) {
-            rotationResults.forEach((group, idx) => {
-              results.push({
-                model,
-                groupNum: idx + 1,
-                front: group.front,
-                back: group.back
-              });
-            });
-          }
-        } else {
-          // 其他模型：按组数循环生成
-          for (let i = 0; i < groups; i++) {
-            let comb;
-            if (model === 'omission') comb = analyzer.generateOmissionBasedPrediction();
-            else if (model === 'time_decay') comb = analyzer.generateTimeDecayPrediction();
-            else if (model === 'bayesian') comb = analyzer.generateBayesianPrediction();
-            else if (model === 'zhouyi') comb = analyzer.generateZhouyiPrediction(i); // 周易不缓存，每次都重新生成
-            else if (model === 'hybrid') comb = analyzer.generateHybridPrediction();
-            else comb = analyzer.generateStatisticalPrediction(model);
-            
+          const rotationResults = analyzer.generateUniqueRotationGroups(groups);
+          rotationResults.forEach((group, idx) => {
             results.push({
               model,
-              groupNum: i + 1,
-              front: comb.slice(0, 5),
-              back: comb.slice(5)
+              groupNum: idx + 1,
+              front: group.front,
+              back: group.back
             });
-          }
+          });
+        } else {
+          // 其他模型：使用多组去重生成，避免后区重复
+          const uniqueGroups = analyzer.generateUniqueGroups(model, groups);
+          uniqueGroups.forEach((group, idx) => {
+            results.push({
+              model,
+              groupNum: idx + 1,
+              front: group.front,
+              back: group.back
+            });
+          });
         }
         
         // 追踪每个模型的生成
@@ -525,10 +653,10 @@ function App() {
 
   // 计算胆拖预计注数
   const calculateDanTuoBets = () => {
-    if (danNumbers.length === 0 || tuoNumbers.length === 0) return 0;
+    if ((danNumbers || []).length === 0 || (tuoNumbers || []).length === 0) return 0;
     
-    const needFromTuo = 5 - danNumbers.length;
-    if (needFromTuo <= 0 || needFromTuo > tuoNumbers.length) return 0;
+    const needFromTuo = 5 - (danNumbers || []).length;
+    if (needFromTuo <= 0 || needFromTuo > (tuoNumbers || []).length) return 0;
     
     // 计算组合数 C(n, k)
     const combinations = (n, k) => {
@@ -555,9 +683,51 @@ function App() {
     return frontBets;
   };
 
+  // 复制当前选择的胆拖号码
+  const handleCopyDanTuoSelection = () => {
+    if (danNumbers.length === 0 || tuoNumbers.length === 0) {
+      alert('请先选择胆码和拖码！');
+      return;
+    }
+
+    // 格式化胆码和拖码
+    const danStr = danNumbers.map(n => n.toString().padStart(2, '0')).join(', ');
+    const tuoStr = tuoNumbers.map(n => n.toString().padStart(2, '0')).join(', ');
+    
+    // 构建复制文本
+    let copyText = `【前区胆拖】\n`;
+    copyText += `胆码：${danStr}\n`;
+    copyText += `拖码：${tuoStr}\n`;
+    copyText += `\n注数：${calculateDanTuoBets()}注`;
+    
+    // 如果有后区胆拖
+    if (backDanNumbers.length > 0 || backTuoNumbers.length > 0) {
+      const backDanStr = backDanNumbers.map(n => n.toString().padStart(2, '0')).join(', ');
+      const backTuoStr = backTuoNumbers.map(n => n.toString().padStart(2, '0')).join(', ');
+      copyText += `\n\n【后区胆拖】\n`;
+      if (backDanNumbers.length > 0) {
+        copyText += `胆码：${backDanStr}\n`;
+      }
+      if (backTuoNumbers.length > 0) {
+        copyText += `拖码：${backTuoStr}\n`;
+      }
+    }
+    
+    // 复制到剪贴板
+    navigator.clipboard.writeText(copyText).then(() => {
+      setCopyDanTuoSuccess(true);
+      setTimeout(() => setCopyDanTuoSuccess(false), 2000);
+    }).catch(err => {
+      console.error('复制失败:', err);
+      alert('复制失败，请手动复制');
+    });
+  };
+
   // 胆拖玩法 - 智能推荐
   const handleRecommendDanTuo = (strategy = 'hot') => {
     setRecommendStrategy(strategy);
+    
+    console.log('🎯 开始胆拖推荐优化（融合区间频率分析v2）');
     
     // 获取热号和冷号
     const hotCold = analyzer.getHotColdNumbers(15);
@@ -567,43 +737,126 @@ function App() {
     const backColdNumbers = hotCold.backCold.map(item => Number(item[0]));
     
     let recommendedDan, recommendedTuo, strategyName, description;
+    // 后区胆拖号码（局部变量，覆盖state，确保旁白与显示一致）
+    let backDanNumbers = useDoubleZone ? [] : [];
+    let backTuoNumbers = useDoubleZone ? [] : [];
     
-    // 根据不同策略选择胆码和拖码
-    if (strategy === 'hot') {
-      // 热号策略：2个热号 + 1个温号作为胆码
-      recommendedDan = [hotNumbers[0], hotNumbers[1], 18];
-      const allCandidates = [
-        ...hotNumbers.slice(2, 6),
-        ...coldNumbers.slice(0, 2),
-        10, 22, 29, 35
-      ];
-      recommendedTuo = allCandidates.filter(n => !recommendedDan.includes(n));
-      strategyName = '热号策略';
-      description = '选择近期最热的2个号码+1个中间号作为胆码，提高中奖概率';
-    } else if (strategy === 'balanced') {
-      // 均衡策略：1个热号 + 1个冷号 + 1个温号
-      recommendedDan = [hotNumbers[0], coldNumbers[0], 18];
-      const allCandidates = [
-        ...hotNumbers.slice(1, 4),
-        ...coldNumbers.slice(1, 4),
-        10, 22, 29, 35
-      ];
-      recommendedTuo = allCandidates.filter(n => !recommendedDan.includes(n));
-      strategyName = '均衡策略';
-      description = '热号、冷号、温号均衡搭配，兼顾趋势与回补';
-    } else if (strategy === 'conservative') {
-      // 保守策略：1个热号 + 2个温号（胆码少，拖码多）
-      recommendedDan = [hotNumbers[0], 15, 25];
-      // 保守策略：尽可能多选拖码，覆盖更广
-      const allCandidates = [
-        ...hotNumbers.slice(1, 8),  // 增加热号数量
-        ...coldNumbers.slice(0, 6),  // 增加冷号数量
-        8, 12, 20, 28, 33, 35,
-        5, 9, 14, 19, 24, 30  // 补充更多号码
-      ];
-      recommendedTuo = allCandidates.filter(n => !recommendedDan.includes(n));
-      strategyName = '保守策略';
-      description = '胆码保守选择，拖码范围更广，注数更多但覆盖面广';
+    // ==================== 方案1：胆码选择优化（使用7区间频率分析）====================
+    try {
+      console.log(' 方案1：使用区间频率分析选择胆码');
+      
+      // 调用区间频率分析获取最热的4个区间和每个区间的最佳号码
+      const zoneFrequencyResult = analyzer.generateZoneFrequencyPrediction();
+      
+      // 从结果中提取胆码（选择最热的4个区间中评分最高的号码）
+      // generateZoneFrequencyPrediction 返回 [...frontNumbers, ...backNumbers]
+      const candidateDanNumbers = zoneFrequencyResult.slice(0, 5); // 前区5个号码
+      
+      // 根据策略选择胆码数量
+      let danCount = 3; // 默认3个胆码
+      
+      if (strategy === 'hot') {
+        // 热号策略：从最热区间选择3-4个胆码
+        danCount = Math.min(4, candidateDanNumbers.length);
+        recommendedDan = candidateDanNumbers.slice(0, danCount);
+        strategyName = '热号策略（区间频率优化）';
+        description = `从最热的${danCount}个区间中选择评分最高的号码作为胆码`;
+      } else if (strategy === 'balanced') {
+        // 均衡策略：从最热区间选择3个胆码，但避开绝对最热
+        danCount = 3;
+        // 取第2-4名的号码（避开最热，选择次热）
+        recommendedDan = candidateDanNumbers.slice(1, 4);
+        if (recommendedDan.length < 3) {
+          recommendedDan = candidateDanNumbers.slice(0, 3);
+        }
+        strategyName = '均衡策略（区间频率优化）';
+        description = `从热区间中选择次热门号码作为胆码，兼顾稳定性与回补`;
+      } else {
+        // 保守策略：只选2个胆码，降低风险
+        danCount = 2;
+        recommendedDan = candidateDanNumbers.slice(2, 4); // 选择第3-4名
+        if (recommendedDan.length < 2) {
+          recommendedDan = candidateDanNumbers.slice(0, 2);
+        }
+        strategyName = '保守策略（区间频率优化）';
+        description = `保守选择2个胆码，降低单点风险`;
+      }
+      
+      console.log('✅ 胆码选择完成:', recommendedDan);
+      
+    } catch (error) {
+      console.warn('方案1失败，降级到基础策略:', error);
+      // 降级到原来的逻辑
+      if (strategy === 'hot') {
+        recommendedDan = [hotNumbers[0], hotNumbers[1], 18];
+        strategyName = '热号策略';
+        description = '选择近期最热的2个号码+1个中间号作为胆码，提高中奖概率';
+      } else if (strategy === 'balanced') {
+        recommendedDan = [hotNumbers[0], coldNumbers[0], 18];
+        strategyName = '均衡策略';
+        description = '热号、冷号、温号均衡搭配，兼顾趋势与回补';
+      } else {
+        recommendedDan = [hotNumbers[0], 15, 25];
+        strategyName = '保守策略';
+        description = '胆码保守选择，拖码范围更广，注数更多但覆盖面广';
+      }
+    }
+    
+    // 新增：使用 FrontDanOptimizer 智能选择胆码（加权随机采样 + 概率排名）
+    let frontDanProbInfo = [];
+    let frontDanNote = '';
+    let frontZoneInfo = '';
+    try {
+      // 根据策略确定胆码数量
+      let danCount = 3;
+      if (strategy === 'hot') danCount = Math.min(4, 5);
+      else if (strategy === 'conservative') danCount = 2;
+      
+      // 使用多维度评分 + 加权随机采样
+      const frontDanResult = FrontDanOptimizer.optimize(analyzer, danCount, strategy);
+      const optimizedDan = frontDanResult.selected;
+      frontDanProbInfo = frontDanResult.probabilityInfo;
+      frontZoneInfo = frontDanResult.zoneInfo || '';
+      
+      // 生成概率旁白
+      frontDanNote = frontDanProbInfo.slice(0, 3).map(p => 
+        `${p.number.toString().padStart(2, '0')}(${p.probability.toFixed(1)}%)`
+      ).join('、');
+      
+      // 确保胆码数量
+      if (optimizedDan.length < danCount) {
+        optimizedDan.push(...recommendedDan).slice(0, danCount);
+      }
+      
+      // 拖码选择
+      const allNumbers = Array.from({length: 35}, (_, i) => i + 1);
+      const tuoCandidates = allNumbers.filter(n => !optimizedDan.includes(n));
+      
+      // ==================== 方案2：使用融合区间频率的拖码优化算法 ====================
+      console.log(' 方案2：调用融合区间频率的拖码优化');
+      let optimizedTuo;
+      try {
+        optimizedTuo = analyzer.optimizeTuoSelectionWithZoneFrequency(
+          optimizedDan, 
+          tuoCandidates, 
+          tuoCount,
+          strategy
+        );
+        console.log('✅ 方案2成功：拖码已基于区间频率优化');
+      } catch (error) {
+        console.warn('️ 方案2失败，降级到普通优化:', error);
+        optimizedTuo = analyzer.optimizeTuoSelection(optimizedDan, tuoCandidates, tuoCount);
+      }
+      
+      // 使用优化后的胆拖组合
+      recommendedDan = optimizedDan;
+      recommendedTuo = optimizedTuo;
+      
+      // 更新描述，加入概率排名信息
+      description += `（加权随机采样， 前区胆码概率排名：${frontDanNote}）`;
+      
+    } catch (error) {
+      console.warn('智能优化失败，使用基础策略:', error);
     }
     
     setDanNumbers(recommendedDan);
@@ -613,49 +866,87 @@ function App() {
     // 无论是否开启开关，都推荐后区号码供用户参考
     let backRecommendationInfo = '';
     
-    if (useDoubleZone || useBackZoneDanTuo) {
-      if (useDoubleZone && useBackFullDrag) {
-        // 一胆全拖模式：只选择1个胆码，拖码自动为剩余所有号码
-        const recommendedBackDan = [backHotNumbers[0]];
-        const recommendedBackTuo = Array.from({ length: 12 }, (_, i) => i + 1)
+    // ==================== 方案3：后区胆拖优化（多维度智能评分）====================
+    console.log('🎯 方案3：后区胆拖优化（多维度智能评分）');
+            
+    // 提取后区推荐逻辑到内部函数，避免代码冗余
+    const generateBackRecommendation = (isFullDrag) => {
+      const backDanResult = BackDanOptimizer.optimize(analyzer, 1, strategy);
+      const recommendedBackDan = backDanResult.selected;
+      const backDanProbInfo = backDanResult.probabilityInfo;
+          
+      let recommendedBackTuo;
+      let backTuoProbInfo = [];
+          
+      if (isFullDrag) {
+        // 一胆全拖模式：排除胆码后全选
+        recommendedBackTuo = Array.from({ length: 12 }, (_, i) => i + 1)
           .filter(n => !recommendedBackDan.includes(n));
-        
-        setBackDanNumbers(recommendedBackDan);
-        setBackTuoNumbers(recommendedBackTuo);
-        
-        description += `；后区一胆全拖：胆码${recommendedBackDan[0]}，拖码1-12除胆码外全部选择`;
-        backRecommendationInfo = `推荐后区号码：${recommendedBackDan[0].toString().padStart(2, '0')} + 其余11个号码全拖。理由：胆码${recommendedBackDan[0]}是近期最热的后区号码，出现频率最高，配合全拖模式可确保后区100%覆盖。`;
       } else {
-        // 普通双区模式 或 前区胆拖+后区胆拖
-        const recommendedBackDan = [backHotNumbers[0]];
-        const recommendedBackTuo = [
-          backHotNumbers[1],
-          backColdNumbers[0],
-          6,
-          9
-        ].filter(n => !recommendedBackDan.includes(n));
-        
-        setBackDanNumbers(recommendedBackDan);
-        setBackTuoNumbers(recommendedBackTuo);
-        
-        description += `；后区：1个热号作为胆码，结合热号、冷号和温号作为拖码`;
-        backRecommendationInfo = `推荐后区号码：${recommendedBackDan[0].toString().padStart(2, '0')} + ${recommendedBackTuo.map(n => n.toString().padStart(2, '0')).join(' ')}。理由：胆码${recommendedBackDan[0]}是近期最热的后区号码（出现频率最高），拖码包含次热号${recommendedBackTuo[0].toString().padStart(2, '0')}和最冷号${backColdNumbers[0].toString().padStart(2, '0')}（回补预期），搭配温号平衡分布。`;
+        // 智能拖码选择（多维度评分+加权随机采样）
+        const backTuoResult = BackTuoOptimizer.optimize(analyzer, recommendedBackDan, 4, strategy);
+        recommendedBackTuo = backTuoResult.selected;
+        backTuoProbInfo = backTuoResult.probabilityInfo;
       }
-    } else {
-      // 前区胆拖模式，不开启后区胆拖，也显示推荐的后区号码供参考
-      const recommendedBackDan = [backHotNumbers[0]];
-      const recommendedBackTuo = [
-        backHotNumbers[1],
-        backColdNumbers[0],
-        6,
-        9
-      ].filter(n => !recommendedBackDan.includes(n));
-      
-      // 也要设置后区号码，让生成结果使用推荐的后区
+          
       setBackDanNumbers(recommendedBackDan);
       setBackTuoNumbers(recommendedBackTuo);
-      
-      backRecommendationInfo = `推荐后区号码：${recommendedBackDan[0].toString().padStart(2, '0')} + ${recommendedBackTuo.map(n => n.toString().padStart(2, '0')).join(' ')}。理由：胆码${recommendedBackDan[0]}是近期最热的后区号码（出现频率最高），拖码包含次热号${recommendedBackTuo[0].toString().padStart(2, '0')}和最冷号${backColdNumbers[0].toString().padStart(2, '0')}（回补预期），搭配温号平衡分布。如果您想使用后区胆拖，可以开启“自选后区（胆拖）”开关。`;
+          
+      const backDanStr = recommendedBackDan.map(n => n.toString().padStart(2, '0')).join(' + ');
+      const backTuoStr = recommendedBackTuo.map(n => n.toString().padStart(2, '0')).join(' ');;
+          
+      // 胆码概率旁白
+      const danProbNote = backDanProbInfo.slice(0, 3).map(p => 
+        `${p.number.toString().padStart(2, '0')}(${p.probability.toFixed(1)}%)`
+      ).join('、');
+          
+      // 拖码概率旁白
+      const tuoProbNote = backTuoProbInfo.slice(0, 3).map(p => 
+        `${p.number.toString().padStart(2, '0')}(${p.probability.toFixed(1)}%)`
+      ).join('、');
+          
+      let backDesc = '';
+      let backInfo = '';
+          
+      if (isFullDrag) {
+        backDesc = `；后区一胆全拖：胆码${recommendedBackDan[0]}（加权随机采样），拖码1-12除胆码外全部选择`;
+        backInfo = `推荐后区胆码：${backDanStr}（加权随机采样）。后区各号码被选为胆码的概率排名：${danProbNote}等。其余11个号码全拖。`;
+      } else {
+        backDesc = `；后区：胆码${backDanStr}（加权随机采样），拖码${backTuoStr}`;
+        backInfo = `推荐后区胆码：${backDanStr}（加权随机采样）。后区各号码被选为胆码的概率排名：${danProbNote}等。拖码概率排名：${tuoProbNote}等。每次推荐通过加权随机采样选择，高分号码概率更高但非固定，您也可参考概率排名自行选择。`;
+      }
+          
+      return { backDesc, backInfo, recommendedBackDan, recommendedBackTuo, backDanProbInfo, backTuoProbInfo };
+    };
+        
+    try {
+      const isFullDrag = useDoubleZone && useBackFullDrag;
+      const backRec = generateBackRecommendation(isFullDrag);
+      description += backRec.backDesc;
+      backRecommendationInfo = backRec.backInfo;
+      // 更新后区胆拖号码，确保旁白与显示一致
+      backDanNumbers = backRec.recommendedBackDan;
+      backTuoNumbers = backRec.recommendedBackTuo;
+      console.log('✅ 方案3成功：后区胆拖已基于多维度智能评分优化');
+    } catch (error) {
+      console.warn('⚠️ 方案3失败，降级到基础策略:', error);
+      try {
+        const isFullDrag = useDoubleZone && useBackFullDrag;
+        const backRec = generateBackRecommendation(isFullDrag);
+        description += backRec.backDesc;
+        backRecommendationInfo = backRec.backInfo;
+        // 更新后区胆拖号码，确保旁白与显示一致
+        backDanNumbers = backRec.recommendedBackDan;
+        backTuoNumbers = backRec.recommendedBackTuo;
+      } catch (fallbackError) {
+        console.warn('⚠️ 降级策略也失败:', fallbackError);
+      }
+    }
+        
+    // 前区胆拖模式，不开启后区胆拖，也显示推荐的后区号码供参考
+    // 注意：不重复调用 generateBackRecommendation，避免加权随机采样导致旁白与显示不一致
+    if (!useDoubleZone && !useBackZoneDanTuo) {
+      backRecommendationInfo += ' 如果您想使用后区胆拖，可以开启"自选后区（胆拖）"开关。';
     }
     
     // 生成推荐结果
@@ -684,16 +975,81 @@ function App() {
         result = analyzer.generateDanTuo(recommendedDan, recommendedTuo, 5);
       }
       
-      setDantuoRecommendation({
+      // 组合质量后验验证 + 自动微调
+      const frontForValidation = [...recommendedDan, ...recommendedTuo.slice(0, 5 - recommendedDan.length)];
+      const backForValidation = backDanNumbers.length > 0 ? [...backDanNumbers, ...backTuoNumbers.slice(0, 2)] : [];
+      let validationResult = null;
+      let finalFront = frontForValidation;
+      let finalBack = backForValidation.length >= 2 ? backForValidation : [];
+      if (frontForValidation.length === 5) {
+        try {
+          validationResult = CombinationValidator.validate(finalFront, finalBack, analyzer);
+          // 验证不通过时自动微调（最多3轮）
+          if (validationResult && !validationResult.passed) {
+            console.log('🔧 组合质量不达标，开始自动微调...');
+            for (let retry = 0; retry < 3; retry++) {
+              const adjusted = CombinationValidator.suggestAdjustment(finalFront, finalBack, validationResult, analyzer);
+              finalFront = adjusted.front;
+              finalBack = adjusted.back;
+              validationResult = CombinationValidator.validate(finalFront, finalBack.length >= 2 ? finalBack : [], analyzer);
+              if (validationResult.passed) {
+                console.log('✅ 自动微调成功！组合质量评分:', validationResult.score, '分');
+                break;
+              }
+              console.log(`  微调第${retry + 1}轮，评分: ${validationResult.score}分，继续微调...`);
+            }
+            if (!validationResult.passed) {
+              console.log('⚠️ 3轮微调后仍未达标，保持当前最佳结果');
+            }
+          }
+        } catch (e) {
+          console.warn('⚠️ 组合质量验证失败:', e);
+        }
+      }
+      // 用微调后的结果更新胆码和拖码
+      // 微调后的5个号码中，前 recommendedDan.length 个是胆码，其余是拖码
+      if (finalFront.length === 5 && frontForValidation.length === 5) {
+        recommendedDan = finalFront.slice(0, recommendedDan.length).sort((a, b) => a - b);
+        // 拖码需要是微调后的号码加上原拖码中未被选取的部分
+        const tuoFromValidation = finalFront.slice(recommendedDan.length);
+        const remainingTuo = recommendedTuo.filter(n => !finalFront.includes(n));
+        recommendedTuo = [...tuoFromValidation, ...remainingTuo].sort((a, b) => a - b);
+        setDanNumbers(recommendedDan);
+        setTuoNumbers(recommendedTuo);
+      }
+            
+      // 计算推荐置信度
+      let confidenceResult = null;
+      try {
+        confidenceResult = ConfidenceCalculator.calculate(analyzer, validationResult, recommendedDan);
+        console.log('📊 推荐置信度:', confidenceResult.confidence, '分（', confidenceResult.level, '）');
+      } catch (e) {
+        console.warn('⚠️ 置信度计算失败:', e);
+      }
+
+            setDantuoRecommendation({
         dan: recommendedDan,
         tuo: recommendedTuo,
         backDan: (useDoubleZone || useBackZoneDanTuo) ? backDanNumbers : [],
         backTuo: (useDoubleZone || useBackZoneDanTuo) ? backTuoNumbers : [],
         backRecommendationInfo: backRecommendationInfo, // 后区推荐信息（始终显示）
-        result: result,
+        frontDanProbInfo: frontDanProbInfo, // 前区胆码概率排名信息
+        frontZoneInfo: frontZoneInfo, // 前区区间频率排名信息
+        validationResult: validationResult, // 组合质量后验验证结果
+        confidenceResult: confidenceResult, // 推荐置信度
         strategy: strategyName,
         description: description
       });
+
+      // 调用3个辅助模型生成推荐
+      try {
+        const danCountForModel = recommendedDan.length;
+        const modelRecs = analyzer.generateModelRecommendations(danCountForModel, tuoCount, strategy);
+        setModelRecommendations(modelRecs);
+        console.log('✅ 辅助模型推荐完成:', modelRecs);
+      } catch (e) {
+        console.warn('⚠️ 辅助模型推荐失败:', e);
+      }
     } catch (error) {
       console.error('推荐失败:', error);
     }
@@ -846,6 +1202,18 @@ function App() {
     trackSave();
   };
 
+  // 如果显示福彩双色球玩法页面，则直接渲染该页面
+  if (showSSQPage) {
+    return (
+      <AuthGuard>
+        <ShuangSeQiuPage onBack={() => {
+          setShowSSQPage(false);
+          window.location.hash = '';
+        }} />
+      </AuthGuard>
+    );
+  }
+
   return (
     <AuthGuard>
       <div className="app">
@@ -859,7 +1227,7 @@ function App() {
           <div className="header-watermark wm-4">发财大计</div>
           <div className="header-watermark wm-5">王正伟</div>
           <div className="header-watermark wm-6">发财大计</div>
-          <h1>🧧 发财大计</h1>
+          <h1 onClick={handleTitleClick} style={{ cursor: 'default' }}>🧧 发财大计</h1>
           <p>苟富贵，勿相忘！</p>
         </header>
 
@@ -939,6 +1307,44 @@ function App() {
         <section className="card dantuo-section">
           <h2>🎯 胆拖玩法</h2>
           
+          {/* 拖码个数选择器 */}
+          <div className="tuo-count-selector" style={{
+            marginBottom: '15px',
+            padding: '12px',
+            background: '#f0f4ff',
+            borderRadius: '8px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '10px'
+          }}>
+            <label style={{ fontWeight: 'bold', color: '#333' }}>📊 前区拖码个数：</label>
+            <select 
+              value={tuoCount}
+              onChange={(e) => setTuoCount(parseInt(e.target.value))}
+              style={{
+                padding: '6px 12px',
+                border: '2px solid #667eea',
+                borderRadius: '6px',
+                fontSize: '14px',
+                fontWeight: 'bold',
+                color: '#667eea',
+                cursor: 'pointer'
+              }}
+            >
+              <option value={8}>8个</option>
+              <option value={9}>9个</option>
+              <option value={10}>10个（推荐）</option>
+              <option value={11}>11个</option>
+              <option value={12}>12个</option>
+              <option value={13}>13个</option>
+              <option value={14}>14个</option>
+              <option value={15}>15个</option>
+            </select>
+            <span style={{ fontSize: '12px', color: '#666' }}>
+              注数：{tuoCount > 2 ? `C(${tuoCount},2) = ${tuoCount * (tuoCount - 1) / 2}注` : '请选择至少3个'}
+            </span>
+          </div>
+          
           {/* 模式切换 */}
           <div className="dantuo-mode-toggle">
             <button 
@@ -988,6 +1394,9 @@ function App() {
           {/* 智能推荐策略选择 */}
           <div className="strategy-selector">
             <span className="strategy-label">推荐策略:</span>
+            <span className="data-window-hint" style={{fontSize: '0.85em', color: '#667eea', marginLeft: '10px'}}>
+              📊 基于最近{dataWindow > 0 ? dataWindow : '全部'}期数据
+            </span>
             <button 
               className={`strategy-btn ${recommendStrategy === 'hot' ? 'active' : ''}`}
               onClick={() => handleRecommendDanTuo('hot')}
@@ -1032,23 +1441,39 @@ function App() {
             <div className="number-selection">
               <div className="selection-label">
                 <span className="label-text">拖码 (可选)</span>
-                <span className="label-count">{tuoNumbers.length}/{35 - danNumbers.length}</span>
+                <span className="label-count">{(tuoNumbers || []).length}/{35 - (danNumbers || []).length}</span>
               </div>
               <div className="selected-numbers tuo-numbers">
-                {tuoNumbers.map(num => (
+                {(tuoNumbers || []).map(num => (
                   <span key={num} className="selected-number tuo" onClick={() => toggleTuoNumber(num)}>
                     {num.toString().padStart(2, '0')}
                   </span>
                 ))}
-                {tuoNumbers.length === 0 && <span className="placeholder">请选择至少1个拖码</span>}
+                {(tuoNumbers || []).length === 0 && <span className="placeholder">请选择至少1个拖码</span>}
               </div>
+            </div>
+
+            {/* 选择模式切换 */}
+            <div className="selection-mode-toggle">
+              <button
+                className={`mode-btn ${selectionMode === 'dan' ? 'active dan-mode' : ''}`}
+                onClick={() => setSelectionMode('dan')}
+              >
+                 选胆码
+              </button>
+              <button
+                className={`mode-btn ${selectionMode === 'tuo' ? 'active tuo-mode' : ''}`}
+                onClick={() => setSelectionMode('tuo')}
+              >
+                🔄 选拖码
+              </button>
             </div>
 
             {/* 号码选择器 */}
             <div className="number-picker">
               {Array.from({ length: 35 }, (_, i) => i + 1).map(num => {
-                const isDan = danNumbers.includes(num);
-                const isTuo = tuoNumbers.includes(num);
+                const isDan = (danNumbers || []).includes(num);
+                const isTuo = (tuoNumbers || []).includes(num);
                 return (
                   <button
                     key={num}
@@ -1056,7 +1481,7 @@ function App() {
                     onClick={() => {
                       if (isDan) toggleDanNumber(num);
                       else if (isTuo) toggleTuoNumber(num);
-                      else if (danNumbers.length < 4) toggleDanNumber(num);
+                      else if (selectionMode === 'dan') toggleDanNumber(num);
                       else toggleTuoNumber(num);
                     }}
                   >
@@ -1106,6 +1531,22 @@ function App() {
                       {backTuoNumbers.length === 0 && <span className="placeholder small">未选</span>}
                     </div>
                   </div>
+
+                  {/* 后区选择模式切换 */}
+                  <div className="selection-mode-toggle compact">
+                    <button
+                      className={`mode-btn ${backSelectionMode === 'dan' ? 'active dan-mode' : ''}`}
+                      onClick={() => setBackSelectionMode('dan')}
+                    >
+                      🎯 胆
+                    </button>
+                    <button
+                      className={`mode-btn ${backSelectionMode === 'tuo' ? 'active tuo-mode' : ''}`}
+                      onClick={() => setBackSelectionMode('tuo')}
+                    >
+                      🔄 拖
+                    </button>
+                  </div>
                 </div>
 
                 {/* 右侧：号码选择器 */}
@@ -1121,7 +1562,7 @@ function App() {
                           onClick={() => {
                             if (isDan) toggleBackDanNumber(num);
                             else if (isTuo) toggleBackTuoNumber(num);
-                            else if (backDanNumbers.length < 1) toggleBackDanNumber(num);
+                            else if (backSelectionMode === 'dan') toggleBackDanNumber(num);
                             else toggleBackTuoNumber(num);
                           }}
                         >
@@ -1160,6 +1601,24 @@ function App() {
             </div>
             <div className="action-buttons">
               <button 
+                className="copy-selection-btn"
+                onClick={handleCopyDanTuoSelection}
+                style={{
+                  background: copyDanTuoSuccess ? '#67c23a' : '#409eff',
+                  color: '#fff',
+                  border: 'none',
+                  padding: '10px 20px',
+                  borderRadius: '6px',
+                  cursor: 'pointer',
+                  fontWeight: 'bold',
+                  fontSize: '14px',
+                  transition: 'all 0.3s',
+                  marginRight: '10px'
+                }}
+              >
+                {copyDanTuoSuccess ? '✅ 已复制' : '📋 复制选号'}
+              </button>
+              <button 
                 className="generate-btn"
                 onClick={handleGenerateDanTuo}
                 disabled={danNumbers.length === 0 || tuoNumbers.length === 0}
@@ -1181,6 +1640,30 @@ function App() {
                 <span>前区胆码: </span>
                 <strong>{dantuoRecommendation.dan.map(n => n.toString().padStart(2, '0')).join(', ')}</strong>
               </div>
+              {/* 前区胆码概率排名旁白 */}
+              {dantuoRecommendation.frontDanProbInfo && dantuoRecommendation.frontDanProbInfo.length > 0 && (
+                <div className="back-recommendation">
+                  <div className="back-rec-header">
+                    <span className="back-rec-icon"></span>
+                    <span className="back-rec-title">前区推荐</span>
+                  </div>
+                  <p className="back-rec-info">
+                    推荐前区胆码：{dantuoRecommendation.dan.map(n => n.toString().padStart(2, '0')).join('、')}（加权随机采样）。前区各号码被选为胆码的概率排名：{dantuoRecommendation.frontDanProbInfo.slice(0, 3).map(p => `${p.number.toString().padStart(2, '0')}(${p.probability.toFixed(1)}%)`).join('、')}等。每次推荐通过加权随机采样选择，高分号码概率更高但非固定，您也可参考概率排名自行选择。
+                  </p>
+                </div>
+              )}
+              {/* 前区区间频率排名 */}
+              {dantuoRecommendation.frontZoneInfo && (
+                <div className="back-recommendation">
+                  <div className="back-rec-header">
+                    <span className="back-rec-icon"></span>
+                    <span className="back-rec-title">区间频率</span>
+                  </div>
+                  <p className="back-rec-info">
+                    {dantuoRecommendation.frontZoneInfo}。热区间号码出现概率更高，冷区间号码具有回归潜力，均衡搭配可提高覆盖面。
+                  </p>
+                </div>
+              )}
               {(useDoubleZone || useBackZoneDanTuo) && dantuoRecommendation.backDan && dantuoRecommendation.backDan.length > 0 && (
                 <div className="tip-numbers">
                   <span>后区胆码: </span>
@@ -1197,6 +1680,63 @@ function App() {
                   <p className="back-rec-info">{dantuoRecommendation.backRecommendationInfo}</p>
                 </div>
               )}
+              {/* 组合质量后验验证信息 */}
+              {dantuoRecommendation.validationResult && !dantuoRecommendation.validationResult.passed && (
+                <div className="back-recommendation">
+                  <div className="back-rec-header">
+                    <span className="back-rec-icon"></span>
+                    <span className="back-rec-title">组合质量</span>
+                  </div>
+                  <p className="back-rec-info">
+                    组合评分：{dantuoRecommendation.validationResult.score}分。{dantuoRecommendation.validationResult.issues.join('；')}。{dantuoRecommendation.validationResult.suggestions.length > 0 ? `建议：${dantuoRecommendation.validationResult.suggestions.join('；')}` : ''}
+                  </p>
+                </div>
+              )}
+              {dantuoRecommendation.validationResult && dantuoRecommendation.validationResult.passed && (
+                <div className="back-recommendation">
+                  <div className="back-rec-header">
+                    <span className="back-rec-icon"></span>
+                    <span className="back-rec-title">组合质量</span>
+                  </div>
+                  <p className="back-rec-info">
+                    组合评分：{dantuoRecommendation.validationResult.score}分✅ 通过。和值{dantuoRecommendation.validationResult.details.frontSum}，AC值{dantuoRecommendation.validationResult.details.acValue}，奇偶比{dantuoRecommendation.validationResult.details.oddEvenRatio}，区间覆盖{dantuoRecommendation.validationResult.details.zoneCoverage}个。
+                  </p>
+                </div>
+              )}
+              {/* 推荐置信度 */}
+              {dantuoRecommendation.confidenceResult && (
+                <div className="back-recommendation">
+                  <div className="back-rec-header">
+                    <span className="back-rec-icon"></span>
+                    <span className="back-rec-title">推荐置信度</span>
+                  </div>
+                  <p className="back-rec-info">
+                    {ConfidenceCalculator.generateDescription(dantuoRecommendation.confidenceResult)}
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* 辅助模型推荐 */}
+          {modelRecommendations && dantuoRecommendation && (
+            <div className="model-recommendations-section">
+              <div className="tip-header">
+                <span className="tip-icon">🧪</span>
+                <span className="tip-title">辅助模型推荐（仅供参考）</span>
+              </div>
+              <p className="tip-description" style={{fontSize: '0.8em', color: '#888', marginBottom: '8px'}}>
+                以下3个模型独立于主推荐算法，各模型基于不同理论，推荐结果仅供参考对比。
+              </p>
+              {['bayesian', 'normal', 'zhouyi'].map(modelKey => {
+                const rec = modelRecommendations[modelKey];
+                if (!rec) return null;
+                const info = rec.modelInfo;
+                const formatNums = (nums) => nums.map(n => n.toString().padStart(2, '0')).join(' ');
+                return (
+                  <ModelRecommendationCard key={modelKey} rec={rec} info={info} formatNums={formatNums} />
+                );
+              })}
             </div>
           )}
 
@@ -1337,6 +1877,23 @@ function App() {
                       </select>
                       <span className="control-hint">影响推荐的准确性</span>
                     </div>
+                    <div className="sample-size-control">
+                      <label>📅 数据窗口：</label>
+                      <select 
+                        value={dataWindow}
+                        onChange={(e) => setDataWindow(parseInt(e.target.value))}
+                        className="sample-size-select"
+                      >
+                        <option value={0}>全部数据</option>
+                        <option value={30}>最近30期</option>
+                        <option value={50}>最近50期</option>
+                        <option value={60}>最近60期（推荐）</option>
+                        <option value={80}>最近80期</option>
+                        <option value={100}>最近100期</option>
+                        <option value={150}>最近150期</option>
+                      </select>
+                      <span className="control-hint">统计分析使用的数据范围（默认60期）</span>
+                    </div>
                   </div>
                   <button 
                     onClick={handleAnalyzeRecommendation} 
@@ -1358,30 +1915,53 @@ function App() {
               <div className="recommendation-header">
                 <h2>💡 智能推荐模型</h2>
                 <div className="header-controls">
-                  <div className="sample-size-control-inline">
-                    <label>样本量：</label>
-                    <select 
-                      value={recommendSampleSize}
-                      onChange={(e) => {
-                        setRecommendSampleSize(parseInt(e.target.value));
-                        // 样本量变化后自动重新分析
-                        setTimeout(() => handleAnalyzeRecommendation(), 100);
-                      }}
-                      className="sample-size-select-small"
-                    >
-                      <option value={50}>50组</option>
-                      <option value={60}>60组</option>
-                      <option value={80}>80组</option>
-                      <option value={100}>100组</option>
-                      <option value={150}>150组</option>
-                    </select>
+                  <div className="controls-row">
+                    <div className="sample-size-control-inline">
+                      <label>每组数量：</label>
+                      <select 
+                        value={recommendSampleSize}
+                        onChange={(e) => {
+                          setRecommendSampleSize(parseInt(e.target.value));
+                          // 样本量变化后自动重新分析
+                          setTimeout(() => handleAnalyzeRecommendation(), 100);
+                        }}
+                        className="sample-size-select-small"
+                      >
+                        <option value={50}>50组</option>
+                        <option value={60}>60组</option>
+                        <option value={80}>80组</option>
+                        <option value={100}>100组</option>
+                        <option value={150}>150组</option>
+                      </select>
+                    </div>
+                    <div className="sample-size-control-inline">
+                      <label>使用数据：</label>
+                      <select 
+                        value={dataWindow}
+                        onChange={(e) => {
+                          setDataWindow(parseInt(e.target.value));
+                          // 数据窗口变化后自动重新分析
+                          setTimeout(() => handleAnalyzeRecommendation(), 100);
+                        }}
+                        className="sample-size-select-small"
+                      >
+                        <option value={0}>全部</option>
+                        <option value={30}>30期</option>
+                        <option value={50}>50期</option>
+                        <option value={80}>80期</option>
+                        <option value={100}>100期</option>
+                        <option value={150}>150期</option>
+                      </select>
+                    </div>
                   </div>
-                  <button 
-                    onClick={handleAnalyzeRecommendation} 
-                    className="re-analyze-button"
-                  >
-                    🔄 重新分析
-                  </button>
+                  <div className="re-analyze-row">
+                    <button 
+                      onClick={handleAnalyzeRecommendation} 
+                      className="re-analyze-button"
+                    >
+                      🔄 重新分析
+                    </button>
+                  </div>
                 </div>
               </div>
               <div className="recommendation-content">

@@ -1188,7 +1188,8 @@ class LotteryAnalyzer {
 
     try {
       results.bayesian = BayesianDanTuoModel.recommendFront(this, danCount, strategy);
-      results.bayesian.back = BayesianDanTuoModel.recommendBack(this, 1);
+      const bayesianBack = BayesianDanTuoModel.recommendBack(this, 1);
+      results.bayesian.back = bayesianBack.danSelected && bayesianBack.danSelected.length > 0 ? bayesianBack : null;
       results.bayesian.modelInfo = BayesianDanTuoModel.getDescription();
     } catch (e) {
       console.warn('⚠️ 贝叶斯动态胆拖推荐失败:', e);
@@ -1197,7 +1198,8 @@ class LotteryAnalyzer {
 
     try {
       results.normal = NormalDanTuoModel.recommendFront(this, danCount, strategy);
-      results.normal.back = NormalDanTuoModel.recommendBack(this, 1);
+      const normalBack = NormalDanTuoModel.recommendBack(this, 1);
+      results.normal.back = normalBack.danSelected && normalBack.danSelected.length > 0 ? normalBack : null;
       results.normal.modelInfo = NormalDanTuoModel.getDescription();
     } catch (e) {
       console.warn('⚠️ 正态分布胆拖推荐失败:', e);
@@ -1206,7 +1208,8 @@ class LotteryAnalyzer {
 
     try {
       results.zhouyi = ZhouyiDanTuoModel.recommendFront(this, danCount, strategy);
-      results.zhouyi.back = ZhouyiDanTuoModel.recommendBack(this, 1);
+      const zhouyiBack = ZhouyiDanTuoModel.recommendBack(this, 1);
+      results.zhouyi.back = zhouyiBack.danSelected && zhouyiBack.danSelected.length > 0 ? zhouyiBack : null;
       results.zhouyi.modelInfo = ZhouyiDanTuoModel.getDescription();
     } catch (e) {
       console.warn('⚠️ 周易时空胆拖推荐失败:', e);

@@ -42,13 +42,20 @@ export class BackDanOptimizer {
       timeWeights[i] = maxBackTimeWeight > 0 ? (rawTimeWeights.back[i] || 0) / maxBackTimeWeight : 0;
     }
     
-    // 5. 预计算频率趋势数据（维度5需要）
-    const totalDraws = activeData.length;
+    // 5. 预计算频率趋势数据（维度5需要）- 优化5：改用近20期频率而非全量频率
+    // 近期频率更能反映当前冷热趋势，避免历史数据拖低正在升温号码的评分
+    // 例如后区#1从历史17.4%升至近50期28.0%，全量频率会低估其当前热度
+    const recentBackWindowCount = Math.min(20, activeData.length);
+    const recentBackWindowData = activeData.slice(-recentBackWindowCount);
+    const recentBackWindowFreq = {};
+    for (let i = 1; i <= CONFIG.BACK_RANGE; i++) recentBackWindowFreq[i] = 0;
+    for (const draw of recentBackWindowData) {
+      for (const num of draw.back) recentBackWindowFreq[num]++;
+    }
     const expectedRate = CONFIG.BACK_COUNT / CONFIG.BACK_RANGE; // 2/12 ≈ 0.167
-    const freqRates = {}; // 每个号码的历史频率比率
+    const freqRates = {}; // 每个号码的近期频率比率
     for (let i = 1; i <= CONFIG.BACK_RANGE; i++) {
-      const f = backCounter[String(i)] || backCounter[i] || 0;
-      freqRates[i] = totalDraws > 0 ? f / totalDraws : 0;
+      freqRates[i] = recentBackWindowCount > 0 ? recentBackWindowFreq[i] / recentBackWindowCount : 0;
     }
     const maxFreqRate = Math.max(...Object.values(freqRates));
 

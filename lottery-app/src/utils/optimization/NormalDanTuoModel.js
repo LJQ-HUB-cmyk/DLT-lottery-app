@@ -85,43 +85,43 @@ export class NormalDanTuoModel {
     // 确保区间覆盖
     bestFront = NormalDanTuoModel._enforceZoneCoverage(bestFront, 4);
 
-    // 从最佳组合中选胆码（按权重排序，选最关键的号码）
-    // 胆码策略：选对目标和值贡献最大的号码
-    const perNumTarget = targetSumFront / CONFIG.FRONT_COUNT;
-    const danPriority = bestFront.map(n => ({
-      number: n,
-      sumContribution: Math.abs(n - perNumTarget) < perNumTarget * 0.5 ? 1 : 0.5, // 越接近期望，越适合做胆码
-      weight: frontFreqWeights[n] || 1
-    })).sort((a, b) => (b.sumContribution + b.weight * 0.001) - (a.sumContribution + a.weight * 0.001));
+    // 胆码策略：选综合评分最高的号码（频率+条件概率）
+    const danPriority = Array.from({ length: CONFIG.FRONT_RANGE }, (_, i) => i + 1)
+      .map(n => ({
+        number: n,
+        score: frontFreqWeights[n] || 0
+      }))
+      .sort((a, b) => b.score - a.score);
 
+    // 胆码：确定性推荐（直接取评分最高）
     const danSelected = danPriority.slice(0, danCount).map(d => d.number).sort((a, b) => a - b);
 
-    // 拖码 = 最佳组合中非胆码的部分 + 其余高分号码
-    const tuoFromBest = bestFront.filter(n => !danSelected.includes(n));
+    // 拖码 = 非胆码的其余号码（按评分排序）
     const tuoRest = Array.from({ length: CONFIG.FRONT_RANGE }, (_, i) => i + 1)
-      .filter(n => !danSelected.includes(n) && !tuoFromBest.includes(n))
-      .sort((a, b) => (frontFreqWeights[b] || 0) - (frontFreqWeights[a] || 0))
-      .slice(0, 10 - tuoFromBest.length);
-    const tuoSelected = [...tuoFromBest, ...tuoRest].sort((a, b) => a - b);
+      .filter(n => !danSelected.includes(n))
+      .sort((a, b) => (frontFreqWeights[b] || 0) - (frontFreqWeights[a] || 0));
+    
+    // 拖码数量：根据胆码数量动态调整
+    const tuoCount = 15 - danCount;
+    const tuoSelected = tuoRest.slice(0, tuoCount).sort((a, b) => a - b);
 
-    // 概率排名信息
-    const allWeights = Object.entries(frontFreqWeights)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 5)
-      .map(([num, weight]) => ({
-        number: Number(num),
-        weight,
-        probability: weight / Object.values(frontFreqWeights).reduce((s, w) => s + w, 0) * 100
-      }));
+    // 概率排名信息（基于Top5号码的评分）
+    const probabilityInfo = danPriority.slice(0, 5).map((item, idx) => ({
+      number: item.number,
+      probability: item.score,
+      rank: idx + 1,
+      score: item.score
+    }));
 
     console.log('✅ 正态分布前区推荐完成 - 胆码:', danSelected, '拖码:', tuoSelected.slice(0, 5), '目标和值:', targetSumFront);
 
     return {
       danSelected,
       tuoSelected,
-      probabilityInfo: allWeights,
+      probabilityInfo: probabilityInfo,
       targetSum: targetSumFront,
-      description: `正态分布模型：期望值${targetSumFront}引导搜索，和值逼近目标+组合质量评估`
+      description: `正态分布模型：期望值${targetSumFront}引导搜索，和值逼近目标+组合质量评估`,
+      recommendType: '确定性推荐'
     };
   }
 
@@ -160,16 +160,24 @@ export class NormalDanTuoModel {
 
     if (!bestBack) bestBack = [1, 2];
 
-    const danSelected = bestBack.slice(0, backDanCount);
+    // 后区胆码：确定性推荐（直接取评分最高）
+    const backScores = Array.from({ length: CONFIG.BACK_RANGE }, (_, i) => i + 1)
+      .map(n => ({ number: n, score: backFreqWeights[n] || 0 }))
+      .sort((a, b) => b.score - a.score);
+    const danSelected = backScores.slice(0, backDanCount).map(d => d.number);
+
+    // 后区拖码：确定性推荐（按评分排序取前4个）
     const tuoAll = Array.from({ length: CONFIG.BACK_RANGE }, (_, i) => i + 1)
-      .filter(n => !danSelected.includes(n));
+      .filter(n => !danSelected.includes(n))
+      .sort((a, b) => (backFreqWeights[b] || 0) - (backFreqWeights[a] || 0));
     const tuoSelected = tuoAll.slice(0, 4);
 
     return {
       danSelected: danSelected.sort((a, b) => a - b),
       tuoSelected: tuoSelected.sort((a, b) => a - b),
       targetSum: targetSumBack,
-      description: `正态分布后区推荐，目标和值${targetSumBack}`
+      description: `正态分布后区推荐，目标和值${targetSumBack}`,
+      recommendType: '确定性推荐'
     };
   }
 

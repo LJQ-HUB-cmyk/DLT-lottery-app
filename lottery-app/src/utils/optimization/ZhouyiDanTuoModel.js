@@ -124,7 +124,7 @@ export class ZhouyiDanTuoModel {
       zhouyiFrontWeights[i] = freqWeight + condBonus + corrBonus + scienceBonus + weekdayBonus;
     }
 
-    // 6. 加权随机采样选择胆码
+    // 6. 确定性推荐：直接选择评分最高的号码作为胆码
     const sortedWeights = Object.entries(zhouyiFrontWeights)
       .sort((a, b) => b[1] - a[1]);
 
@@ -133,30 +133,33 @@ export class ZhouyiDanTuoModel {
       number: Number(num), weight
     }));
 
-    const danSelected = ZhouyiDanTuoModel._weightedSample(candidatePool, danCount);
+    // 胆码：确定性推荐（直接取评分最高）
+    const danSelected = candidatePool.slice(0, danCount).map(c => c.number);
 
-    // 7. 加权随机采样选择拖码
+    // 7. 拖码：确定性推荐（按评分排序取剩余号码）
     const tuoAll = Array.from({ length: CONFIG.FRONT_RANGE }, (_, i) => i + 1)
       .filter(n => !danSelected.includes(n));
     const tuoCandidates = tuoAll.map(n => ({
       number: n, weight: zhouyiFrontWeights[n] || 1
     })).sort((a, b) => b.weight - a.weight);
 
-    const tuoSelected = ZhouyiDanTuoModel._weightedSample(tuoCandidates, 10);
+    // 拖码数量：根据胆码数量动态调整
+    const tuoCount = 15 - danCount;
+    const tuoSelected = tuoCandidates.slice(0, tuoCount).map(c => c.number);
 
     // 卦象信息
-    const trigramNames = ['乾', '兑', '离', '震', '巽', '坎', '艮', '坤'];
+    const trigramNames = ['乾', '兑', '离', '震', '巽', '坎', '', '坤'];
     const upperName = trigramNames[upperTrigram];
     const lowerName = trigramNames[lowerTrigram];
     const drawDayNames = { 1: '周一', 3: '周三', 6: '周六' };
     const nextDrawDayName = drawDayNames[nextDrawDay] || '未知';
 
-    // 概率排名信息
-    const probabilityInfo = sortedWeights.slice(0, 5).map(([num, weight]) => {
-      const totalSum = sortedWeights.reduce((s, [, w]) => s + w, 0);
+    // 概率排名信息（基于Top5号码的评分）
+    const probabilityInfo = sortedWeights.slice(0, 5).map(([num, weight], idx) => {
       return {
         number: Number(num),
-        probability: totalSum > 0 ? (weight / totalSum * 100) : 0,
+        probability: weight,
+        rank: idx + 1,
         score: weight
       };
     });
@@ -170,7 +173,8 @@ export class ZhouyiDanTuoModel {
       probabilityInfo,
       trigramInfo: { upper: upperName, lower: lowerName, movingLine },
       nextDrawDay: nextDrawDayName,
-      description: `周易时空模型：${upperName}${lowerName}卦+动爻${movingLine+1}，下次开奖${nextDrawDayName}，卦象池+时辰映射+开奖日频率`
+      description: `周易时空模型：${upperName}${lowerName}卦+动爻${movingLine+1}，下次开奖${nextDrawDayName}，卦象池+时辰映射+开奖日频率`,
+      recommendType: '确定性推荐'
     };
   }
 
@@ -247,14 +251,14 @@ export class ZhouyiDanTuoModel {
       .sort((a, b) => b[1] - a[1])
       .map(([num, weight]) => ({ number: Number(num), weight }));
 
-    const danSelected = ZhouyiDanTuoModel._weightedSample(allCandidates, backDanCount);
+    // 后区胆码：确定性推荐（直接取评分最高）
+    const danSelected = allCandidates.slice(0, backDanCount).map(c => c.number);
 
+    // 后区拖码：确定性推荐（按评分排序取前4个）
     const tuoAll = Array.from({ length: CONFIG.BACK_RANGE }, (_, i) => i + 1)
-      .filter(n => !danSelected.includes(n));
-    const tuoCandidates = tuoAll.map(n => ({
-      number: n, weight: expandedBackWeights[n] || 1
-    }));
-    const tuoSelected = ZhouyiDanTuoModel._weightedSample(tuoCandidates, 4);
+      .filter(n => !danSelected.includes(n))
+      .sort((a, b) => (expandedBackWeights[b] || 0) - (expandedBackWeights[a] || 0));
+    const tuoSelected = tuoAll.slice(0, 4);
 
     const drawDayNames = { 1: '周一', 3: '周三', 6: '周六' };
 
@@ -262,7 +266,8 @@ export class ZhouyiDanTuoModel {
       danSelected: danSelected.sort((a, b) => a - b),
       tuoSelected: tuoSelected.sort((a, b) => a - b),
       nextDrawDay: drawDayNames[nextDrawDay],
-      description: `周易时空后区推荐，时辰${hour}时+开奖日${drawDayNames[nextDrawDay]}`
+      description: `周易时空后区推荐，时辰${hour}时+开奖日${drawDayNames[nextDrawDay]}`,
+      recommendType: '确定性推荐'
     };
   }
 

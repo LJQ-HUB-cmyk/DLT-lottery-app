@@ -66,9 +66,9 @@ function ModelRecommendationCard({ rec, info, formatNums }) {
         {nextDrawDateStr}开奖
       </div>
       <p className="back-rec-info" style={{fontWeight: '500'}}>
-        前区胆码: <strong>{formatNums(rec.danSelected)}</strong> | 
-        前区拖码: <strong>{formatNums(rec.tuoSelected)}</strong> | 
-        后区: <strong>{rec.back ? formatNums(rec.back.danSelected) + ' + ' + formatNums(rec.back.tuoSelected) : '--'}</strong>
+        前区胆码: <strong>{rec.danSelected ? formatNums(rec.danSelected) : '--'}</strong> | 
+        前区拖码: <strong>{rec.tuoSelected ? formatNums(rec.tuoSelected) : '--'}</strong> | 
+        后区: <strong>{rec.back && rec.back.danSelected ? formatNums(rec.back.danSelected) + ' + ' + formatNums(rec.back.tuoSelected || []) : '--'}</strong>
       </p>
       {expanded && (
         <div style={{marginTop: '8px', paddingTop: '8px', borderTop: '1px dashed #eee'}}>
@@ -818,9 +818,9 @@ function App() {
       frontDanProbInfo = frontDanResult.probabilityInfo;
       frontZoneInfo = frontDanResult.zoneInfo || '';
       
-      // 生成概率旁白
-      frontDanNote = frontDanProbInfo.slice(0, 3).map(p => 
-        `${p.number.toString().padStart(2, '0')}(${p.probability.toFixed(1)}%)`
+      // 生成热度排名旁白
+      frontDanNote = frontDanProbInfo.slice(0, 3).map((p, idx) => 
+        `${p.number.toString().padStart(2, '0')}(${idx === 0 ? '最热' : '第' + (idx + 1) + '热'})`
       ).join('、');
       
       // 确保胆码数量
@@ -852,8 +852,8 @@ function App() {
       recommendedDan = optimizedDan;
       recommendedTuo = optimizedTuo;
       
-      // 更新描述，加入概率排名信息
-      description += `（加权随机采样， 前区胆码概率排名：${frontDanNote}）`;
+      // 更新描述，加入热度排名信息
+      description += `（多维度智能评分， 前区号码推荐热度：${frontDanNote}）`;
       
     } catch (error) {
       console.warn('智能优化失败，使用基础策略:', error);
@@ -1303,6 +1303,43 @@ function App() {
           )}
         </section>
 
+        {/* 最新一期开奖号码 */}
+        {(() => {
+          const latestDraw = getLatestDrawFromData();
+          return latestDraw && (
+            <section className="card latest-draw-card">
+              <h2>🎯 最新一期开奖</h2>
+              <div className="latest-draw-content">
+                <div className="draw-info">
+                  <span className="draw-period">最新一期</span>
+                </div>
+                <div className="draw-numbers">
+                  <div className="front-zone">
+                    <span className="zone-label">前区</span>
+                    <div className="numbers">
+                      {latestDraw.front.map((num, idx) => (
+                        <span key={idx} className="ball front-ball">
+                          {num.toString().padStart(2, '0')}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="back-zone">
+                    <span className="zone-label">后区</span>
+                    <div className="numbers">
+                      {latestDraw.back.map((num, idx) => (
+                        <span key={idx} className="ball back-ball">
+                          {num.toString().padStart(2, '0')}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </section>
+          );
+        })()}
+
         {/* 胆拖玩法 */}
         <section className="card dantuo-section">
           <h2>🎯 胆拖玩法</h2>
@@ -1648,7 +1685,7 @@ function App() {
                     <span className="back-rec-title">前区推荐</span>
                   </div>
                   <p className="back-rec-info">
-                    推荐前区胆码：{dantuoRecommendation.dan.map(n => n.toString().padStart(2, '0')).join('、')}（加权随机采样）。前区各号码被选为胆码的概率排名：{dantuoRecommendation.frontDanProbInfo.slice(0, 3).map(p => `${p.number.toString().padStart(2, '0')}(${p.probability.toFixed(1)}%)`).join('、')}等。每次推荐通过加权随机采样选择，高分号码概率更高但非固定，您也可参考概率排名自行选择。
+                    推荐前区胆码：{dantuoRecommendation.dan.map(n => n.toString().padStart(2, '0')).join('、')}（多维度智能评分）。前区各号码推荐热度排名：{dantuoRecommendation.frontDanProbInfo.map((p, idx) => `${p.number.toString().padStart(2, '0')}(${idx === 0 ? '最热' : '第' + (idx + 1) + '热'})`).join('、')}。高分号码优先推荐，每次刷新可能略有变化，您也可参考排名自行选择。
                   </p>
                 </div>
               )}
@@ -1730,9 +1767,9 @@ function App() {
               </p>
               {['bayesian', 'normal', 'zhouyi'].map(modelKey => {
                 const rec = modelRecommendations[modelKey];
-                if (!rec) return null;
+                if (!rec || !rec.danSelected || !rec.tuoSelected) return null;
                 const info = rec.modelInfo;
-                const formatNums = (nums) => nums.map(n => n.toString().padStart(2, '0')).join(' ');
+                const formatNums = (nums) => (nums || []).filter(n => n != null).map(n => n.toString().padStart(2, '0')).join(' ');
                 return (
                   <ModelRecommendationCard key={modelKey} rec={rec} info={info} formatNums={formatNums} />
                 );
@@ -1811,43 +1848,6 @@ function App() {
             </div>
           )}
         </section>
-
-        {/* 最新一期开奖号码 */}
-        {(() => {
-          const latestDraw = getLatestDrawFromData();
-          return latestDraw && (
-            <section className="card latest-draw-card">
-              <h2>🎯 最新一期开奖</h2>
-              <div className="latest-draw-content">
-                <div className="draw-info">
-                  <span className="draw-period">最新一期</span>
-                </div>
-                <div className="draw-numbers">
-                  <div className="front-zone">
-                    <span className="zone-label">前区</span>
-                    <div className="numbers">
-                      {latestDraw.front.map((num, idx) => (
-                        <span key={idx} className="ball front-ball">
-                          {num.toString().padStart(2, '0')}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                  <div className="back-zone">
-                    <span className="zone-label">后区</span>
-                    <div className="numbers">
-                      {latestDraw.back.map((num, idx) => (
-                        <span key={idx} className="ball back-ball">
-                          {num.toString().padStart(2, '0')}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </section>
-          );
-        })()}
 
         {/* 智能模型推荐 */}
         {(() => {

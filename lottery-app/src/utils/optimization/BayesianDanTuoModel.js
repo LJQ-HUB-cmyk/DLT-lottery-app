@@ -96,41 +96,47 @@ export class BayesianDanTuoModel {
       posteriorFront[i] = score;
     }
 
-    // 6. 加权随机采样选择胆码
+    // 6. 确定性推荐：直接选择评分最高的号码作为胆码
     const sortedFront = Object.entries(posteriorFront).sort((a, b) => b[1] - a[1]);
     const candidateSize = strategy === 'hot' ? 10 : strategy === 'balanced' ? 15 : 20;
     const candidatePool = sortedFront.slice(0, candidateSize).map(x => ({
       number: Number(x[0]), posteriorScore: x[1]
     }));
 
-    const danSelected = BayesianDanTuoModel._weightedSample(candidatePool, danCount);
+    // 胆码：确定性推荐（直接取评分最高），确保结果稳定可预期
+    const danSelected = candidatePool.slice(0, danCount).map(c => c.number);
 
-    // 7. 加权随机采样选择拖码
+    // 7. 拖码：确定性推荐（按评分排序取剩余号码）
     const tuoAllNumbers = Array.from({ length: CONFIG.FRONT_RANGE }, (_, i) => i + 1)
       .filter(n => !danSelected.includes(n));
     const tuoCandidates = tuoAllNumbers.map(n => ({
       number: n, posteriorScore: posteriorFront[n] || 0
     }));
 
-    const tuoSelected = BayesianDanTuoModel._weightedSample(tuoCandidates, 10);
+    // 拖码数量：根据胆码数量动态调整（保证胆拖总数约13-15个号码）
+    const tuoCount = 15 - danCount;
+    const tuoSelected = tuoCandidates.sort((a, b) => b.posteriorScore - a.posteriorScore)
+      .slice(0, tuoCount).map(c => c.number);
 
-    // 概率排名信息
-    const probabilityInfo = sortedFront.slice(0, 5).map(([num, score]) => {
-      const totalSum = sortedFront.reduce((s, [, sc]) => s + (sc || 0) + 0.5, 0);
+    // 概率排名信息（基于Top5号码的相对权重）
+    const probabilityInfo = sortedFront.slice(0, 5).map(([num, score], idx) => {
       return {
         number: Number(num),
-        probability: totalSum > 0 ? ((score + 0.5) / totalSum * 100) : 0,
+        probability: score,
+        rank: idx + 1,
         score: score
       };
     });
 
     console.log('✅ 贝叶斯动态前区推荐完成 - 胆码:', danSelected.sort((a, b) => a - b));
+    console.log('  拖码:', tuoSelected.sort((a, b) => a - b));
 
     return {
       danSelected: danSelected.sort((a, b) => a - b),
       tuoSelected: tuoSelected.sort((a, b) => a - b),
       probabilityInfo,
-      description: '贝叶斯动态模型：先验→后验修正，融合重号因子+和值趋势+时间加权（归一化）'
+      description: '贝叶斯动态模型：先验→后验修正，融合重号因子+和值趋势+时间加权（归一化）',
+      recommendType: '确定性推荐'
     };
   }
 
@@ -183,7 +189,8 @@ export class BayesianDanTuoModel {
       const currentOmission = omission.back[i] || 0;
       const omissionDiff = Math.abs(currentOmission - backAvgOmission);
       const omissionFactor = Math.max(0, 1 - omissionDiff / (backAvgOmission * 2));
-      score += omissionFactor * 0.15;                     // 维度5: 遗漏回归 15%（从0.20调整为0.15）
+    // 维度5: 遗漏回归 15%
+      score += omissionFactor * 0.15;
       score += (i % 2 === 1) ? 0.05 : 0;                  // 维度6: 奖偶偏好 5%
       // 重号因子
       const streakFlag = lastDraw && lastDraw.back.includes(i);
@@ -275,7 +282,8 @@ export class BayesianDanTuoModel {
       danSelected: danSelected.sort((a, b) => a - b),
       tuoSelected: tuoSelected.sort((a, b) => a - b),
       description: '8维评分：先验+时间+动量+条件概率+遗漏+奇偶+重号+冷热状态',
-      probabilityInfo
+      probabilityInfo,
+      recommendType: '确定性推荐'
     };
   }
 

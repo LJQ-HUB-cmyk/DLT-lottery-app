@@ -166,11 +166,11 @@ export class DanTuoOptimizer {
     const rawCorrelationScores = candidateNumbers.map(tuoNum => {
       let corr = 0;
       const TIME_DECAY = 0.98;
-      const activeData = this.getActiveData();
+      // 使用外层已获取的activeData，避免重复调用getActiveData
+      const recentDraws = activeData.slice(-15);
       for (const dan of danNumbers) {
         const coOccurrence = correlationData.front[dan] && correlationData.front[dan][tuoNum] || 0;
         corr += coOccurrence;
-        const recentDraws = activeData.slice(-15);
         for (const draw of recentDraws) {
           if (draw.front.includes(dan) && draw.front.includes(tuoNum)) {
             const recencyIdx = recentDraws.indexOf(draw);
@@ -182,6 +182,22 @@ export class DanTuoOptimizer {
     });
     const maxCorr = Math.max(...rawCorrelationScores.map(s => s.corr));
 
+    // 预计算：map外常量（避免在每个候选号码中重复计算）
+    const totalFrontFreq = Object.values(frontCounter).reduce((a, b) => a + b, 0);
+    const avgFreqPerNum = totalFrontFreq / CONFIG.FRONT_RANGE;
+    const sumTrend = this.trendAnalyzer.analyzeSumTrend();
+    const spanAnalysis = this.trendAnalyzer.analyzeSpan();
+    // 预计算：动量加速度全局最大值
+    const maxAcceleration = Math.max(
+      ...candidateNumbers.map(n => {
+        const vr = (veryRecentFrontFreq[n] || 0) / veryRecentCount;
+        const mr = (recentFreq.front[n] || 0) / (recentFreq.recentCount || 15);
+        return vr - mr;
+      }).filter(a => a > 0)
+    );
+    const currentDanSum = danNumbers.reduce((a, b) => a + b, 0);
+    // 预计算：均衡/保守策略动量归一化常量
+    const maxMomentum = Math.max(...Object.values(recentFreq.frontMomentum).map(m => Math.abs(m)));
     const tuoScores = candidateNumbers.map(tuoNum => {
       const zone = getZone(tuoNum);
       let score = 0;
@@ -195,10 +211,9 @@ export class DanTuoOptimizer {
         const freqBoost = maxFreq > 0 ? (freq / maxFreq) * 5 : 0;
         score += omissionBaseScore + freqBoost;
       } else {
-        // 均衡/保守策略：频率基础10分 + 动量5分（保持原逻辑）
+        // 均衡/保守策略：频率基础10分 + 动量5分（保持原逻辑，使用预计算的maxMomentum）
         const freqBase = maxFreq > 0 ? (freq / maxFreq) * 10 : 0;
         const momentum = recentFreq.frontMomentum[tuoNum] || 0;
-        const maxMomentum = Math.max(...Object.values(recentFreq.frontMomentum).map(m => Math.abs(m)));
         const normalizedMomentum = maxMomentum > 0 ? momentum / maxMomentum : 0;
         score += freqBase + Math.max(0, normalizedMomentum) * 5;
       }
@@ -285,9 +300,7 @@ export class DanTuoOptimizer {
       score += normalizedCorr * 10;
 
       // 6. 协同评分加成（热号7分，均衡/保守10分）- 与胆码的和值/跨度协调性
-      // 和值协调：拖码加入后使总和接近历史均值
-      const sumTrend = this.trendAnalyzer.analyzeSumTrend();
-      const currentDanSum = danNumbers.reduce((a, b) => a + b, 0);
+      // 和值协调：拖码加入后使总和接近历史均值（使用预计算的sumTrend/currentDanSum）
       const targetTotalSum = sumTrend.avgFrontSum;
       const sumWithTuo = currentDanSum + tuoNum;
       const sumDiff = Math.abs(sumWithTuo - targetTotalSum / 5 * (danNumbers.length + 1));
@@ -317,10 +330,9 @@ export class DanTuoOptimizer {
         }
       }
 
-      // 跨度协调：拖码加入后使号码跨度合理
+      // 跨度协调：拖码加入后使号码跨度合理（使用预计算的spanAnalysis）
       const allNumbersWithTuo = [...danNumbers, tuoNum];
       const spanWithTuo = Math.max(...allNumbersWithTuo) - Math.min(...allNumbersWithTuo);
-      const spanAnalysis = this.trendAnalyzer.analyzeSpan();
       const spanDiff = Math.abs(spanWithTuo - spanAnalysis.avgFrontSpan);
       const maxSpanDiff = spanAnalysis.avgFrontSpan * 0.3;
       const spanScoreMax = strategy === 'hot' ? 2 : 3;
@@ -333,13 +345,6 @@ export class DanTuoOptimizer {
         const veryRecentRate = (veryRecentFrontFreq[tuoNum] || 0) / veryRecentCount;
         const mediumRecentRate = (recentFreq.front[tuoNum] || 0) / (recentFreq.recentCount || 15);
         const acceleration = veryRecentRate - mediumRecentRate;
-        const maxAcceleration = Math.max(
-          ...candidateNumbers.map(n => {
-            const vr = (veryRecentFrontFreq[n] || 0) / veryRecentCount;
-            const mr = (recentFreq.front[n] || 0) / (recentFreq.recentCount || 15);
-            return vr - mr;
-          }).filter(a => a > 0)
-        );
         if (acceleration > 0 && maxAcceleration > 0) {
           score += (acceleration / maxAcceleration) * 5;
         }
@@ -347,10 +352,8 @@ export class DanTuoOptimizer {
       
       // 所有策略：冷却惩罚（热号最多-5分，均衡-3分，保守-2分）
       // 高频号（历史频率 > 平均）且当前遗漏 > 平均遗漏 → 正在冷却 → 扣分
-      const totalFrontFreq = Object.values(frontCounter).reduce((a, b) => a + b, 0);
-      const avgFreqPerNum = totalFrontFreq / CONFIG.FRONT_RANGE;
+      // 使用预计算的avgFreqPerNum/currentOmission
       const numFreq = frontCounter[String(tuoNum)] || frontCounter[tuoNum] || 0;
-      // 使用预计算的currentOmission
       if (numFreq > avgFreqPerNum && currentOmission > avgFrontOmission) {
         const coolingDegree = (currentOmission - avgFrontOmission) / avgFrontOmission;
         const freqHeat = numFreq / avgFreqPerNum;
@@ -360,11 +363,10 @@ export class DanTuoOptimizer {
       }
 
 
-
       // 7. 历史形态相似度加成（热号3分，均衡/保守5分）- 归一化
-      const historyData = this.getActiveData();
+      // 使用外层已获取的activeData，避免重复调用getActiveData
       const similarityBonus = HistoricalSimilarity.computeNumberSimilarityBonus(
-        tuoNum, true, danNumbers, [], historyData
+        tuoNum, true, danNumbers, [], activeData
       );
       score += similarityBonus * (strategy === 'hot' ? 3 : 5);
 

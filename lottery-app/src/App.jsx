@@ -1306,13 +1306,13 @@ function App() {
                 {/* 中奖规则速查表 */}
                 <div className="prize-quick-ref">
                   <div className="prize-quick-ref-grid">
-                    <span className="prize-ref-item prize-1">🥇 5+2 <small>一等奖</small></span>
-                    <span className="prize-ref-item prize-2">🥈 5+1 <small>二等奖</small></span>
-                    <span className="prize-ref-item prize-3">🥉 5+0 / 4+2 <small>三等奖</small></span>
-                    <span className="prize-ref-item prize-4">4️ 4+1 <small>四等奖</small></span>
-                    <span className="prize-ref-item prize-5">5️⃣ 4+0 / 3+2 <small>五等奖</small></span>
-                    <span className="prize-ref-item prize-6">6️ 3+1 / 2+2 <small>六等奖</small></span>
-                    <span className="prize-ref-item prize-7">7️⃣ 3+0 / 2+1 / 1+2 / 0+2 <small>七等奖</small></span>
+                    <span className="prize-ref-item prize-1"><span className="prize-badge">1</span> 5+2 <small>一等奖</small></span>
+                    <span className="prize-ref-item prize-2"><span className="prize-badge">2</span> 5+1 <small>二等奖</small></span>
+                    <span className="prize-ref-item prize-3"><span className="prize-badge">3</span> 5+0 / 4+2 <small>三等奖</small></span>
+                    <span className="prize-ref-item prize-4"><span className="prize-badge">4</span> 4+1 <small>四等奖</small></span>
+                    <span className="prize-ref-item prize-5"><span className="prize-badge">5</span> 4+0 / 3+2 <small>五等奖</small></span>
+                    <span className="prize-ref-item prize-6"><span className="prize-badge">6</span> 3+1 / 2+2 <small>六等奖</small></span>
+                    <span className="prize-ref-item prize-7"><span className="prize-badge">7</span> 3+0 / 2+1 / 1+2 / 0+2 <small>七等奖</small></span>
                   </div>
                 </div>
               </div>

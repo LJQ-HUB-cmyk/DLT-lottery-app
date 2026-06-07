@@ -741,78 +741,16 @@ function App() {
     let backDanNumbers = useDoubleZone ? [] : [];
     let backTuoNumbers = useDoubleZone ? [] : [];
     
-    // ==================== 方案1：胆码选择优化（使用7区间频率分析）====================
-    try {
-      console.log(' 方案1：使用区间频率分析选择胆码');
-      
-      // 调用区间频率分析获取最热的4个区间和每个区间的最佳号码
-      const zoneFrequencyResult = analyzer.generateZoneFrequencyPrediction();
-      
-      // 从结果中提取胆码（选择最热的4个区间中评分最高的号码）
-      // generateZoneFrequencyPrediction 返回 [...frontNumbers, ...backNumbers]
-      const candidateDanNumbers = zoneFrequencyResult.slice(0, 5); // 前区5个号码
-      
-      // 根据策略选择胆码数量
-      let danCount = 3; // 默认3个胆码
-      
-      if (strategy === 'hot') {
-        // 热号策略：从最热区间选择3-4个胆码
-        danCount = Math.min(4, candidateDanNumbers.length);
-        recommendedDan = candidateDanNumbers.slice(0, danCount);
-        strategyName = '热号策略（区间频率优化）';
-        description = `从最热的${danCount}个区间中选择评分最高的号码作为胆码`;
-      } else if (strategy === 'balanced') {
-        // 均衡策略：从最热区间选择3个胆码，但避开绝对最热
-        danCount = 3;
-        // 取第2-4名的号码（避开最热，选择次热）
-        recommendedDan = candidateDanNumbers.slice(1, 4);
-        if (recommendedDan.length < 3) {
-          recommendedDan = candidateDanNumbers.slice(0, 3);
-        }
-        strategyName = '均衡策略（区间频率优化）';
-        description = `从热区间中选择次热门号码作为胆码，兼顾稳定性与回补`;
-      } else {
-        // 保守策略：只选2个胆码，降低风险
-        danCount = 2;
-        recommendedDan = candidateDanNumbers.slice(2, 4); // 选择第3-4名
-        if (recommendedDan.length < 2) {
-          recommendedDan = candidateDanNumbers.slice(0, 2);
-        }
-        strategyName = '保守策略（区间频率优化）';
-        description = `保守选择2个胆码，降低单点风险`;
-      }
-      
-      console.log('✅ 胆码选择完成:', recommendedDan);
-      
-    } catch (error) {
-      console.warn('方案1失败，降级到基础策略:', error);
-      // 降级到原来的逻辑
-      if (strategy === 'hot') {
-        recommendedDan = [hotNumbers[0], hotNumbers[1], 18];
-        strategyName = '热号策略';
-        description = '选择近期最热的2个号码+1个中间号作为胆码，提高中奖概率';
-      } else if (strategy === 'balanced') {
-        recommendedDan = [hotNumbers[0], coldNumbers[0], 18];
-        strategyName = '均衡策略';
-        description = '热号、冷号、温号均衡搭配，兼顾趋势与回补';
-      } else {
-        recommendedDan = [hotNumbers[0], 15, 25];
-        strategyName = '保守策略';
-        description = '胆码保守选择，拖码范围更广，注数更多但覆盖面广';
-      }
-    }
-    
-    // 新增：使用 FrontDanOptimizer 智能选择胆码（加权随机采样 + 概率排名）
+    // ==================== 胆码智能推荐（FrontDanOptimizer + 降级备选）====================
     let frontDanProbInfo = [];
     let frontDanNote = '';
     let frontZoneInfo = '';
+    let danCount = 3;
+    if (strategy === 'hot') danCount = 4;
+    else if (strategy === 'conservative') danCount = 2;
+
     try {
-      // 根据策略确定胆码数量
-      let danCount = 3;
-      if (strategy === 'hot') danCount = Math.min(4, 5);
-      else if (strategy === 'conservative') danCount = 2;
-      
-      // 使用多维度评分 + 加权随机采样
+      // 主方案：使用多维度评分 + 加权随机采样
       const frontDanResult = FrontDanOptimizer.optimize(analyzer, danCount, strategy);
       const optimizedDan = frontDanResult.selected;
       frontDanProbInfo = frontDanResult.probabilityInfo;
@@ -823,9 +761,11 @@ function App() {
         `${p.number.toString().padStart(2, '0')}(${idx === 0 ? '最热' : '第' + (idx + 1) + '热'})`
       ).join('、');
       
-      // 确保胆码数量
+      // 确保胆码数量：从旧推荐中补充差额
       if (optimizedDan.length < danCount) {
-        optimizedDan.push(...recommendedDan).slice(0, danCount);
+        const needCount = danCount - optimizedDan.length;
+        const extraNums = recommendedDan.filter(n => !optimizedDan.includes(n)).slice(0, needCount);
+        optimizedDan.push(...extraNums);
       }
       
       // 拖码选择
@@ -853,10 +793,26 @@ function App() {
       recommendedTuo = optimizedTuo;
       
       // 更新描述，加入热度排名信息
-      description += `（多维度智能评分， 前区号码推荐热度：${frontDanNote}）`;
+      description = `多维度智能评分，前区号码推荐热度：${frontDanNote}`;
       
     } catch (error) {
-      console.warn('智能优化失败，使用基础策略:', error);
+      console.warn('智能优化失败，降级到区间频率分析:', error);
+      // 降级方案：使用区间频率分析选胆码
+      try {
+        const zoneFrequencyResult = analyzer.generateZoneFrequencyPrediction();
+        const candidateDanNumbers = zoneFrequencyResult.slice(0, 5);
+        recommendedDan = candidateDanNumbers.slice(0, danCount);
+        if (recommendedDan.length < danCount) {
+          recommendedDan.push(...hotNumbers.slice(0, danCount - recommendedDan.length));
+        }
+        strategyName = strategy === 'hot' ? '热号策略（降级）' : strategy === 'balanced' ? '均衡策略（降级）' : '保守策略（降级）';
+        description = '智能优化失败，降级到区间频率分析选胆码';
+      } catch (fallbackError) {
+        console.warn('降级策略也失败，使用热号基础策略:', fallbackError);
+        recommendedDan = hotNumbers.slice(0, danCount);
+        strategyName = '基础策略';
+        description = '降级到热号基础策略';
+      }
     }
     
     setDanNumbers(recommendedDan);
@@ -1007,11 +963,23 @@ function App() {
         }
       }
       // 用微调后的结果更新胆码和拖码
-      // 微调后的5个号码中，前 recommendedDan.length 个是胆码，其余是拖码
+      // 微调可能替换了某个胆码，需重新确认哪些号码是胆码
       if (finalFront.length === 5 && frontForValidation.length === 5) {
-        recommendedDan = finalFront.slice(0, recommendedDan.length).sort((a, b) => a - b);
-        // 拖码需要是微调后的号码加上原拖码中未被选取的部分
-        const tuoFromValidation = finalFront.slice(recommendedDan.length);
+        // 微调后的5个号码中，与原胆码交集的保留为胆码，其余为拖码
+        // 如果原胆码被微调替换了，新号码自动成为拖码（胆码由原推荐确定）
+        const originalDanSet = new Set(frontForValidation.slice(0, recommendedDan.length));
+        recommendedDan = finalFront.filter(n => originalDanSet.has(n)).sort((a, b) => a - b);
+        // 如果微调替换导致胆码不足，从微调结果中补充遗漏最接近的号码
+        if (recommendedDan.length < frontForValidation.slice(0, recommendedDan.length).length) {
+          const needed = frontForValidation.slice(0, recommendedDan.length).length - recommendedDan.length;
+          const extras = finalFront.filter(n => !recommendedDan.includes(n)).slice(0, needed);
+          recommendedDan.push(...extras);
+          recommendedDan.sort((a, b) => a - b);
+        }
+        const tuoFromValidation = finalFront.filter(n => !recommendedDan.includes(n));
+        // 原拖码中：不在微调后5号码中的保留（它们仍是拖码候选）
+        // 注意：不能用 `!recommendedDan.includes(n) === false` 这是运算符优先级Bug
+        // 正确逻辑：保留原拖码中不在finalFront(微调后5号码)里的号码
         const remainingTuo = recommendedTuo.filter(n => !finalFront.includes(n));
         recommendedTuo = [...tuoFromValidation, ...remainingTuo].sort((a, b) => a - b);
         setDanNumbers(recommendedDan);
@@ -1333,6 +1301,18 @@ function App() {
                         </span>
                       ))}
                     </div>
+                  </div>
+                </div>
+                {/* 中奖规则速查表 */}
+                <div className="prize-quick-ref">
+                  <div className="prize-quick-ref-grid">
+                    <span className="prize-ref-item prize-1">🥇 5+2 <small>一等奖</small></span>
+                    <span className="prize-ref-item prize-2">🥈 5+1 <small>二等奖</small></span>
+                    <span className="prize-ref-item prize-3">🥉 5+0 / 4+2 <small>三等奖</small></span>
+                    <span className="prize-ref-item prize-4">4️ 4+1 <small>四等奖</small></span>
+                    <span className="prize-ref-item prize-5">5️⃣ 4+0 / 3+2 <small>五等奖</small></span>
+                    <span className="prize-ref-item prize-6">6️ 3+1 / 2+2 <small>六等奖</small></span>
+                    <span className="prize-ref-item prize-7">7️⃣ 3+0 / 2+1 / 1+2 / 0+2 <small>七等奖</small></span>
                   </div>
                 </div>
               </div>

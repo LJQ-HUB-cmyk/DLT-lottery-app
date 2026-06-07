@@ -191,14 +191,13 @@ export class BayesianDanTuoModel {
       const omissionFactor = Math.max(0, 1 - omissionDiff / (backAvgOmission * 2));
     // 维度5: 遗漏回归 15%
       score += omissionFactor * 0.15;
-      score += (i % 2 === 1) ? 0.05 : 0;                  // 维度6: 奖偶偏好 5%
-      // 重号因子
+      // 维度6: 重号因子 8%
       const streakFlag = lastDraw && lastDraw.back.includes(i);
       if (streakFlag) {
-        score += repeatAnalysis.backRepeatRate * 0.08;      // 维度7: 重号因子 8%
+        score += repeatAnalysis.backRepeatRate * 0.08;
       }
-
-      // 维度8: 冷热状态检测 (8%) - 动态识别“历史热号正在冷却”的现象
+    
+      // 维度7: 冷热状态检测 (8%) - 动态识别"历史热号正在冷却"的现象
       // 8a. 频率温度比率：近期出现率 / 期望出现率
       const expectedRate = 2 / CONFIG.BACK_RANGE; // ≈0.167
       const temperatureRatio = recentRate / expectedRate;
@@ -336,7 +335,6 @@ export class BayesianDanTuoModel {
       weaknesses: [
         '先验概率基于全量频率，长期冷号先验极低难以翻身',
         '和值趋势判断阈值固定(±5)，对小幅波动不敏感',
-        '区间平衡因子过于简单（仅奇偶区间交替加分0.05）',
         '后验概率各维度权重固定，缺乏自适应机制'
       ]
     };

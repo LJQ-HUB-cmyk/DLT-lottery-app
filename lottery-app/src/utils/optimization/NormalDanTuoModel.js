@@ -21,6 +21,8 @@ export class NormalDanTuoModel {
     const [frontCounter] = analyzer.frequencyAnalyzer.analyzeFrequency();
     const [expFront] = analyzer.frequencyAnalyzer.calculateExpectedValue();
     const conditionalProb = analyzer.conditionalProbability.calculateConditionalProbability();
+    const omissionData = analyzer.omissionCalculator.calculateOmission();
+    const avgFrontOmission = analyzer.omissionCalculator.getAverageOmission('front');
     const activeData = analyzer.getActiveData();
 
     if (activeData.length === 0) {
@@ -30,12 +32,16 @@ export class NormalDanTuoModel {
     // 目标参数
     const targetSumFront = Math.round(expFront * CONFIG.FRONT_COUNT);
 
-    // 融合条件概率的权重
+    // 融合频率+条件概率+遗漏回归的权重（补全遗漏维度）
     const frontFreqWeights = {};
     for (let i = 1; i <= CONFIG.FRONT_RANGE; i++) {
       const freq = (frontCounter[String(i)] || frontCounter[i] || 0) + 1;
       const cond = (conditionalProb.front[i] || 0) * CONFIG.CONDITIONAL_WEIGHT * conditionalProb.confidence * 10;
-      frontFreqWeights[i] = freq + cond;
+      // 遗漏回归加成：遗漏越高越可能回归，增加权重
+      const currentOmission = omissionData.front[i] || 0;
+      const omissionDeviation = currentOmission - avgFrontOmission;
+      const omissionBonus = omissionDeviation > 0 ? omissionDeviation / (avgFrontOmission + 1) : 0; // 归一化遗漏偏离
+      frontFreqWeights[i] = freq + cond + omissionBonus * 3; // 遗漏回归权重系数3
     }
 
     // 引导式搜索：找和值最接近目标的前区组合
@@ -132,13 +138,19 @@ export class NormalDanTuoModel {
     const [, backCounter] = analyzer.frequencyAnalyzer.analyzeFrequency();
     const [, expBack] = analyzer.frequencyAnalyzer.calculateExpectedValue();
     const conditionalProb = analyzer.conditionalProbability.calculateConditionalProbability();
+    const omissionData = analyzer.omissionCalculator.calculateOmission();
+    const avgBackOmission = analyzer.omissionCalculator.getAverageOmission('back');
     const targetSumBack = Math.round(expBack * CONFIG.BACK_COUNT);
 
     const backFreqWeights = {};
     for (let i = 1; i <= CONFIG.BACK_RANGE; i++) {
       const freq = (backCounter[String(i)] || backCounter[i] || 0) + 1;
       const cond = (conditionalProb.back[i] || 0) * CONFIG.BACK_CONDITIONAL_WEIGHT * conditionalProb.confidence * 10;
-      backFreqWeights[i] = freq + cond;
+      // 遗漏回归加成
+      const currentOmission = omissionData.back[i] || 0;
+      const omissionDeviation = currentOmission - avgBackOmission;
+      const omissionBonus = omissionDeviation > 0 ? omissionDeviation / (avgBackOmission + 1) : 0;
+      backFreqWeights[i] = freq + cond + omissionBonus * 3;
     }
 
     // 搜索最接近目标和值的后区组合

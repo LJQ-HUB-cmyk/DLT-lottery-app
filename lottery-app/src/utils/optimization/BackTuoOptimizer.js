@@ -5,6 +5,7 @@
  */
 
 import { CONFIG } from '../core/Config.js';
+import { computeZone4Prediction, formatZonePredictionLog } from './ZonePrediction.js';
 
 export class BackTuoOptimizer {
   /**
@@ -64,6 +65,15 @@ export class BackTuoOptimizer {
     }
     const hotFirstHalfRatio = hotTotalFreq > 0 ? hotFirstHalfFreq / hotTotalFreq : 0.5;
 
+    // === 后区4小区动态趋势数据（改进4：使用共享ZonePrediction工具，与BackDanOptimizer维度对称） ===
+    // 4小区: 区1(1-3), 区2(4-6), 区3(7-9), 区4(10-12)
+    const { backZone4Absence, backZone4RecentHit, backZone4Trend, backZone4Prediction } = computeZone4Prediction(activeData);
+    const getBackZone4 = (num) => Math.ceil(num / 3);
+    
+    const zone4RangeFormatter = (z) => z <= 3 ? `${(z-1)*3+1}-${z*3}` : '10-12';
+    const backZone4Log = formatZonePredictionLog(backZone4Prediction, backZone4Absence, backZone4Trend, 4, zone4RangeFormatter, '后区4小区');
+    console.log('  📊 后区拖码4小区动态趋势:', backZone4Log);
+
     // 排除胆码后的候选拖码
     const candidateNumbers = Array.from({ length: CONFIG.BACK_RANGE }, (_, i) => i + 1)
       .filter(n => !danNumbers.includes(n));
@@ -87,18 +97,25 @@ export class BackTuoOptimizer {
     });
     const maxCorr = Math.max(...rawCorrScores.map(s => s.corr));
 
-    // 6. 计算每个号码的综合得分
-    // 热号策略7维度：条件概率20 + 遗漏20 + 频率20 + 时间衰减10 + 热区趋势10 + 重号因子10 + 冷却惩罚扣5 = 85~90
-    // 均衡/保守策略5维度：条件概率25 + 遗漏25 + 频率20 + 时间衰减15 + 区间均衡15 = 总分100
+    // 6. 计算每个号码的综合得分（改进4~5：共享趋势工具+自适应扰动）
+    // 热号策略8维度：条件概率20 + 遗漏20 + 频率20 + 时间衰减10 + 热区趋势5 + 4小区趋势5 + 重号因子10 + 冷却惩罚-5 = 80~85
+    // 均衡/保守策略6维度：条件概率25 + 遗漏25 + 频率20 + 时间衰减15 + 频率趋势15 + 4小区趋势5 = 总分100
     const scored = [];
 
-    // 区间均衡：后区两区(1-6/7-12)
-    const firstHalfFreq = Array.from({ length: 6 }, (_, i) => i + 1)
-      .reduce((sum, n) => sum + (backCounter[String(n)] || backCounter[n] || 0), 0);
-    const secondHalfFreq = Array.from({ length: 6 }, (_, i) => i + 7)
-      .reduce((sum, n) => sum + (backCounter[String(n)] || backCounter[n] || 0), 0);
-    const totalFreq = firstHalfFreq + secondHalfFreq;
-    const firstHalfRatio = totalFreq > 0 ? firstHalfFreq / totalFreq : 0.5;
+    // 频率趋势数据（与BackDanOptimizer一致的设计决策：取消区间均衡，改为基于历史频率的趋势加分）
+    const recentBackWindowCount = Math.min(20, activeData.length);
+    const recentBackWindowData = activeData.slice(-recentBackWindowCount);
+    const recentBackWindowFreq = {};
+    for (let i = 1; i <= CONFIG.BACK_RANGE; i++) recentBackWindowFreq[i] = 0;
+    for (const draw of recentBackWindowData) {
+      for (const num of draw.back) recentBackWindowFreq[num]++;
+    }
+    const expectedRate = CONFIG.BACK_COUNT / CONFIG.BACK_RANGE; // 2/12 ≈ 0.167
+    const freqRates = {}; // 每个号码的近期频率比率
+    for (let i = 1; i <= CONFIG.BACK_RANGE; i++) {
+      freqRates[i] = recentBackWindowCount > 0 ? recentBackWindowFreq[i] / recentBackWindowCount : 0;
+    }
+    const maxFreqRate = Math.max(...Object.values(freqRates));
 
     for (const num of candidateNumbers) {
       let score = 0;
@@ -151,14 +168,13 @@ export class BackTuoOptimizer {
         ? rawTimeWeight / maxBackTimeWeight : 0;
       score += normalizedTimeWeight * (strategy === 'hot' ? 10 : 15);
 
-      // 维度5: 区间/热区评分（热号：热区趋势10分+重号因子10分=20分；均衡/保守：区间均衡15分）
+      // 维度5: 区间/热区评分（优化4：热号热区趋势降至5分+4小区趋势5分=10分；均衡/保守频率趋势降至15分+4小区趋势5分=20分）
       if (strategy === 'hot') {
-        // 热区趋势加分（10分满分）：号码所在半区的近期频率占比越高加分越多
+        // 热区趋势加分（5分满分，从10分降至5分释放5分给4小区趋势）
         const halfRecentRatio = hotTotalFreq > 0
           ? (isFirstHalf ? hotFirstHalfFreq / hotTotalFreq : hotSecondHalfFreq / hotTotalFreq) : 0.5;
-        // 后区理论均值=0.5，占比超过0.5越多加分越多
         const hotZoneBonus = halfRecentRatio > 0.45
-          ? Math.min((halfRecentRatio - 0.45) * 20, 10) : 0;
+          ? Math.min((halfRecentRatio - 0.45) * 10, 5) : 0;
         score += hotZoneBonus;
         
         // 重号因子加分（10分满分）：上期出现的号码本期更可能再出
@@ -166,12 +182,28 @@ export class BackTuoOptimizer {
           score += Math.min(repeatAnalysis.backRepeatRate * 10, 10);
         }
       } else {
-        // 均衡/保守策略：区间均衡补偿
-        if (isFirstHalf && firstHalfRatio < 0.5) {
-          score += Math.abs(0.5 - firstHalfRatio) * 30;
-        } else if (!isFirstHalf && firstHalfRatio > 0.5) {
-          score += Math.abs(0.5 - firstHalfRatio) * 30;
+        // 均衡/保守策略：频率趋势加分（15分满分，从20分降至15分释放5分给4小区趋势）
+        const freqRate = freqRates[num] || 0;
+        const freqTrendMax = 15;
+        if (freqRate > expectedRate && maxFreqRate > expectedRate) {
+          const normalizedTrend = (freqRate - expectedRate) / (maxFreqRate - expectedRate);
+          score += normalizedTrend * freqTrendMax;
         }
+      }
+      
+      // 维度5b: 4小区动态趋势加分（优化4：5分满分，与BackDanOptimizer维度对称）
+      const backZone4Num = getBackZone4(num);
+      const backZone4Pred = backZone4Prediction[backZone4Num];
+      if (strategy === 'hot') {
+        if (backZone4Pred === 'must') score += 5;
+        else if (backZone4Pred === 'very_likely') score += 3;
+        else if (backZone4Pred === 'likely_warm') score += 1;
+        else if (backZone4Pred === 'unlikely_cool') score -= 3;
+      } else {
+        if (backZone4Pred === 'must') score += 5;
+        else if (backZone4Pred === 'very_likely') score += 3;
+        else if (backZone4Pred === 'likely_warm') score += 1;
+        else if (backZone4Pred === 'unlikely_cool') score -= 2;
       }
       
       // 热号策略：冷却惩罚（最多扣5分）
@@ -199,14 +231,23 @@ export class BackTuoOptimizer {
     }
 
     // 加权随机采样：高分号码概率更高，但每次结果不同
+    // 优化5：评分随机扰动+平方根压缩（与FrontDanOptimizer/DanTuoOptimizer同步）
+    // 改进5：扰动幅度按分数范围自适应（扰动=range*5%），后区评分范围较小无需固定±1分
+    const backTuoRange = Math.max(...scored.map(s => s.score)) - Math.min(...scored.map(s => s.score));
+    const backTuoPerturbation = backTuoRange * 0.05;
+    for (const s of scored) {
+      s.score += (Math.random() - 0.5) * backTuoPerturbation * 2;
+    }
+    
     const minScore = Math.min(...scored.map(s => s.score));
     const scoreRange = Math.max(...scored.map(s => s.score)) - minScore;
 
     const weights = scored.map(s => {
       const normalized = scoreRange > 0 ? (s.score - minScore) / scoreRange : 0.5;
+      const compressed = Math.sqrt(normalized); // 平方根压缩：高分仍优先但差距缩小
       return {
         ...s,
-        sampleWeight: 0.1 + normalized * 0.9  // 最低10%概率
+        sampleWeight: 0.15 + compressed * 0.85  // 最低15%概率，最高100%概率
       };
     });
 
@@ -277,12 +318,13 @@ export class BackTuoOptimizer {
       remaining.splice(chosenIdx, 1);
     }
 
-    // 计算概率排名信息
+    // 计算概率排名信息（优化5：使用平方根压缩与采样权重一致）
     const allWeights = scored.map(s => {
       const allMinScore = Math.min(...scored.map(s2 => s2.score));
       const allScoreRange = Math.max(...scored.map(s2 => s2.score)) - allMinScore;
       const normalized = allScoreRange > 0 ? (s.score - allMinScore) / allScoreRange : 0.5;
-      return { number: s.number, weight: 0.1 + normalized * 0.9 };
+      const compressed = Math.sqrt(normalized);
+      return { number: s.number, weight: 0.15 + compressed * 0.85 };
     });
 
     const totalWeightSum = allWeights.reduce((sum, w) => sum + w.weight, 0);

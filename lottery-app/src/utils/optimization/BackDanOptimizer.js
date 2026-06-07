@@ -4,6 +4,7 @@
  */
 
 import { CONFIG } from '../core/Config.js';
+import { computeZone4Prediction, formatZonePredictionLog } from './ZonePrediction.js';
 
 export class BackDanOptimizer {
   /**
@@ -59,9 +60,19 @@ export class BackDanOptimizer {
     }
     const maxFreqRate = Math.max(...Object.values(freqRates));
 
-    // 6. 计算每个号码的综合得分
-    // 热号策略7维度：条件概率25 + 遗漏偏离度20 + 频率+动量15(含热号恒热+5) + 时间衰减10 + 频率趋势15 + 重号因子10 + 冷却惩罚扣5 = 95~100
-    // 均衡/保守策略5维度：条件概率30 + 遗漏偏离度20 + 频率+动量15 + 时间衰减15 + 频率趋势20 = 总分100分
+    // === 后区4小区动态趋势数据（改进4：使用共享ZonePrediction工具） ===
+    // 4小区: 区1(1-3), 区2(4-6), 区3(7-9), 区4(10-12)
+    // 数据支撑: 85.4%恰好2个4小区出号, 连续不出1期后96-100%回归
+    const { backZone4Absence, backZone4RecentHit, backZone4Trend, backZone4Prediction } = computeZone4Prediction(activeData);
+    const getBackZone4 = (num) => Math.ceil(num / 3); // 评分循环中仍需使用
+    
+    const zone4RangeFormatter = (z) => z <= 3 ? `${(z-1)*3+1}-${z*3}` : '10-12';
+    const backZone4Log = formatZonePredictionLog(backZone4Prediction, backZone4Absence, backZone4Trend, 4, zone4RangeFormatter, '后区4小区');
+    console.log('  📊 后区4小区动态趋势:', backZone4Log);
+
+    // 6. 计算每个号码的综合得分（改进4~5：共享趋势工具+自适应扰动）
+    // 热号策略8维度：条件概率15 + 遗漏偏离度20 + 频率+动量15(含热号恒热+5) + 时间衰减10 + 频率趋势10 + 4小区趋势18 + 重号因子10 + 冷却惩罚扣5 = 78~98
+    // 均衡/保守策略6维度：条件概率20 + 遗漏偏离度20 + 频率+动量15 + 时间衰减15 + 频率趋势15 + 4小区趋势15 = 100
     const scored = [];
     for (let num = 1; num <= CONFIG.BACK_RANGE; num++) {
       let score = 0;
@@ -69,11 +80,12 @@ export class BackDanOptimizer {
       // 预先计算频率（维度2和维度3都需要）
       const freq = backCounter[String(num)] || backCounter[num] || 0;
       
-      // 维度1: 条件概率得分 - 归一化（热号25分，均衡/保守30分）
+      // 维度1: 条件概率得分 - 归一化（优化5：热号15分，均衡/保守20分，降5分释放空间给4小区must）
+      // 从20/25降5分释放空间给4小区must加分(10→18)，must区回归概率接近100%比条件概率更重要
       const condProb = conditionalProb.back[num] || 0;
       const maxCondProb = Math.max(...Object.values(conditionalProb.back));
       const normalizedCondProb = maxCondProb > 0 ? condProb / maxCondProb : 0;
-      score += normalizedCondProb * (strategy === 'hot' ? 25 : 30);
+      score += normalizedCondProb * (strategy === 'hot' ? 15 : 20);
             
       // 维度2: 遗漏回归评分（20分满分）
       // 逻辑：适度遗漏最佳（既不太热也不太冷），符合均值回归原理
@@ -149,26 +161,64 @@ export class BackDanOptimizer {
       const timeWeight = timeWeights[num] || 0;
       score += timeWeight * (strategy === 'hot' ? 10 : 15);
             
-      // 维度5: 频率趋势加分（热号15分，均衡/保守20分）
+      // 维度5: 频率趋势加分（热号10分，均衡/保守15分）
       // 按项目设计决策：取消区间均衡补偿，改为基于历史频率的趋势加分
       // 频率高于期望值(≈0.167)的号码按比例加分，低于期望值的不加分
-      // 使推荐更符合1-10高频、11-12低频的真实开奖规律
+      // 从原(热号15/均衡20)降分，释放5分给4小区动态趋势维度6
       const freqRate = freqRates[num];
-      const freqTrendMax = strategy === 'hot' ? 15 : 20;
+      const freqTrendMax = strategy === 'hot' ? 10 : 15;
       if (freqRate > expectedRate && maxFreqRate > expectedRate) {
         const normalizedTrend = (freqRate - expectedRate) / (maxFreqRate - expectedRate);
         score += normalizedTrend * freqTrendMax;
       }
       
-      // 热号策略维度6: 重号因子（10分满分）
+      // 维度6: 4小区动态趋势加分（优化5：热号提升至18分，均衡/保守15分）
+      // 数据支撑: 85.4%恰好2个4小区出号, 连续不出2期后100%回归
+      // must区回归概率接近100%，加分必须足以让must区号码进入Top候选
+      // 优化5：must加分10→18分，条件概率降5分释放空间，确保must区号码不被压制
+      // must: +18分 - 胆码从必出区选命中率极高
+      // very_likely: +12分
+      // likely_warm: +6分
+      // warming: +3分
+      // unlikely_cool: -8分 - 强化降温惩罚
+      const backZone4 = getBackZone4(num);
+      const backPrediction = backZone4Prediction[backZone4];
+      if (strategy === 'hot') {
+        if (backPrediction === 'must') score += 18;
+        else if (backPrediction === 'very_likely') score += 12;
+        else if (backPrediction === 'likely_warm') score += 6;
+        else if (backPrediction === 'warming') score += 3;
+        else if (backPrediction === 'unlikely_cool') score -= 8;
+      } else {
+        if (backPrediction === 'must') score += 15;
+        else if (backPrediction === 'very_likely') score += 10;
+        else if (backPrediction === 'likely_warm') score += 5;
+        else if (backPrediction === 'warming') score += 2;
+        else if (backPrediction === 'unlikely_cool') score -= 5;
+      }
+      
+      // 热号策略维度7: 重号因子（10分满分，均值回归调节）
       // 大乐透后区约25-35%重号率，上期出现的号码本期更可能再出
+      // 但高重复周期后往往出现低重复期（均值回归），需动态调整
+      let backRepeatWeight = 10; // 默认满分（维度设计满分10分）
+      if (strategy === 'hot' && activeData.length >= 2) {
+        const lastBackRepeatCount = activeData[activeData.length - 1].back.filter(
+          n => activeData[activeData.length - 2].back.includes(n)
+        ).length;
+        if (lastBackRepeatCount >= 1) {
+          backRepeatWeight = 7; // 上期有重号→降低到7分（均值回归概率）
+        }
+        if (lastBackRepeatCount === 0) {
+          backRepeatWeight = 10; // 上期0重号→保持满分10分（反弹信号），不再超过维度满分
+        }
+      }
       if (strategy === 'hot') {
         if (lastDraw && lastDraw.back.includes(num)) {
-          score += Math.min(repeatAnalysis.backRepeatRate * 10, 10);
+          score += Math.min(repeatAnalysis.backRepeatRate * backRepeatWeight, backRepeatWeight);
         }
       }
       
-      // 热号策略维度7: 冷却惩罚（最多扣5分）
+      // 热号策略维度8: 冷却惩罚（最多扣5分）
       // 高频号且当前遗漏 > 平均遗漏 → 正在冷却 → 扣分
       if (strategy === 'hot') {
         const totalBackFreq = Object.values(backCounter).reduce((a, b) => a + b, 0);
@@ -193,9 +243,32 @@ export class BackDanOptimizer {
     
     // 后区胆码：确定性推荐（直接取评分最高），确保推荐结果稳定可预期
     // 后区12选1的特性适合确定性策略，每次推荐都是同一号码
-    const selected = scored.sort((a, b) => b.score - a.score)
-      .slice(0, backDanCount)
-      .map(s => s.number);
+    // 但后区胆码风险极高（1不命中=全军覆没），需规避极端依赖重号的号码
+    // 如果top1是上期重号且近期重号率高，降低其优先级，取top2或top3作为替代
+    const sortedScored = [...scored].sort((a, b) => b.score - a.score);
+    let selected = sortedScored.slice(0, backDanCount).map(s => s.number);
+    
+    // 后区胆码重号风险缓解：胆码是上期出现的号码→重号依赖风险极高
+    // 后区胆码1不命中=全军覆没，推荐重号等于赌“它会连续出现”
+    // 条件概率更高的非重号通常更可靠（如#5条件概率0.168 >> #10的0.076）
+    if (strategy === 'hot' && backDanCount >= 1 && lastDraw) {
+      // 只要推荐的第一名是上期重号，就考虑降级风险
+      // 不再依赖上期重号率判断，直接检查胆码本身是否是重号
+      if (lastDraw.back.includes(selected[0])) {
+        // 找非重号候选中评分最高的替换（条件概率往往更高）
+        const nonRepeatCandidates = sortedScored.filter(s => !lastDraw.back.includes(s.number));
+        // 只有非重号候选的评分差距≤3分才替换（避免替换评分差距过大的号码）
+        if (nonRepeatCandidates.length > 0) {
+          const topRepeatScore = sortedScored.find(s => s.number === selected[0])?.score || 0;
+          const topNonRepeatScore = nonRepeatCandidates[0].score;
+          if (topRepeatScore - topNonRepeatScore <= 3) {
+            // 评分差距≤3分，非重号更安全，替换
+            selected[0] = nonRepeatCandidates[0].number;
+            console.log('  🔒 后区胆码重号风险缓解: 替换重号#' + sortedScored.find(s => s.number === selected[0] || lastDraw.back.includes(s.number))?.number + '→非重号#' + selected[0] + ' (评分差距' + (topRepeatScore - topNonRepeatScore).toFixed(1) + '分)');
+          }
+        }
+      }
+    }
     
     // 输出Top候选详情（用于概率排名显示）
     const topCandidates = [...scored].sort((a, b) => b.score - a.score).slice(0, 5);

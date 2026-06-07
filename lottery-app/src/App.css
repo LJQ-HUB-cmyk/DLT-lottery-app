@@ -952,7 +952,7 @@ button.success {
 /* 中奖规则速查表 */
 .prize-quick-ref {
   margin-top: 15px;
-  padding: 10px 15px;
+  padding: 10px 12px;
   background: rgba(255, 255, 255, 0.12);
   border-radius: 10px;
   backdrop-filter: blur(4px);
@@ -961,31 +961,33 @@ button.success {
 .prize-quick-ref-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 6px 10px;
+  gap: 5px 6px;
 }
 
 .prize-ref-item {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 6px 8px;
-  font-size: 0.78em;
-  line-height: 1.3;
-  border-radius: 6px;
+  gap: 4px;
+  padding: 4px 5px;
+  font-size: 0.68em;
+  line-height: 1.2;
+  border-radius: 5px;
   background: rgba(255, 255, 255, 0.06);
   color: #ddd;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .prize-badge {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 18px;
-  height: 18px;
+  width: 15px;
+  height: 15px;
   border-radius: 50%;
   background: rgba(255, 255, 255, 0.15);
   color: #fff;
-  font-size: 0.7em;
+  font-size: 0.65em;
   font-weight: bold;
   flex-shrink: 0;
 }
@@ -995,6 +997,10 @@ button.success {
   opacity: 0.6;
   margin-left: auto;
   white-space: nowrap;
+  flex-shrink: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .prize-ref-item.prize-1 {
@@ -1024,7 +1030,29 @@ button.success {
 }
 
 .prize-ref-item.prize-7 {
-  font-size: 0.7em;
+  font-size: 0.62em;
+}
+
+@media (max-width: 480px) {
+  .prize-quick-ref-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 4px;
+  }
+  .prize-ref-item {
+    padding: 5px 6px;
+    font-size: 0.7em;
+  }
+  .prize-ref-item small {
+    font-size: 0.8em;
+  }
+  .prize-badge {
+    width: 16px;
+    height: 16px;
+    font-size: 0.7em;
+  }
+  .prize-ref-item.prize-7 {
+    font-size: 0.65em;
+  }
 }
 
 .draw-info {

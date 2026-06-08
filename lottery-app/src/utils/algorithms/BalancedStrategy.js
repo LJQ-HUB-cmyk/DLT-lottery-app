@@ -48,6 +48,9 @@ export class BalancedStrategyModel extends BaseModel {
 
     let front = [...selectedHotFront, ...selectedWarmFront, ...selectedColdFront, ...selectedRandomFront];
 
+    // 奇偶比后处理：确保2:3或3:2的理想比例
+    front = this.enforceParityRatio(front);
+
     // 后区：融合条件概率的智能采样
     const backWeightsWithConditional = {};
     for (let n = 1; n <= CONFIG.BACK_RANGE; n++) {

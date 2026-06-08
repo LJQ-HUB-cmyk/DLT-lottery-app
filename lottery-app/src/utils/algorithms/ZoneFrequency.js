@@ -211,6 +211,9 @@ export class ZoneFrequencyModel extends BaseModel {
       }
     }
 
+    // 奇偶比后处理：确保2:3或3:2的理想比例
+    frontNumbers = this.enforceParityRatio(frontNumbers);
+
     // 确保后区有 CONFIG.BACK_COUNT 个号码
     while (backNumbers.length < CONFIG.BACK_COUNT) {
       const allNumbers = Array.from({ length: CONFIG.BACK_RANGE }, (_, i) => i + 1);

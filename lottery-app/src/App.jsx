@@ -1103,7 +1103,10 @@ function App() {
         const backStr = p.back.map(n => n.toString().padStart(2, '0')).join(' ');
         const frontSum = p.front.reduce((a, b) => a + b, 0);
         const backSum = p.back.reduce((a, b) => a + b, 0);
-        text += `第${idx + 1}组: ${frontStr} | ${backStr} (前区和值:${frontSum}, 后区和值:${backSum})\n`;
+        const oddCount = p.front.filter(n => n % 2 !== 0).length;
+        const evenCount = p.front.length - oddCount;
+        const oddEvenMark = (oddCount >= 2 && oddCount <= 3) ? '✓' : '⚠';
+        text += `第${idx + 1}组: ${frontStr} | ${backStr} (和值:${frontSum}/${backSum}, 奇偶:${oddCount}:${evenCount}${oddEvenMark})\n`;
       });
       text += '\n';
     });
@@ -2211,6 +2214,16 @@ function App() {
                         <div className="sum-item">
                           <span className="sum-label">后区和值</span>
                           <span className="sum-number">{p.back.reduce((a, b) => a + b, 0)}</span>
+                        </div>
+                        <div className="sum-item">
+                          <span className="sum-label">前区奇偶</span>
+                          <span className="sum-number" style={{fontSize: '0.85em'}}>{(() => {
+                            const oddCount = p.front.filter(n => n % 2 !== 0).length;
+                            const evenCount = p.front.length - oddCount;
+                            const ratio = `${oddCount}:${evenCount}`;
+                            const isIdeal = oddCount >= 2 && oddCount <= 3;
+                            return isIdeal ? `${ratio} ✓` : `${ratio} ⚠`;
+                          })()}</span>
                         </div>
                       </div>
                       {groups.length > 1 && <div className="group-separator"></div>}

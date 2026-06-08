@@ -3139,6 +3139,39 @@ button.success {
   font-size: 1em;
 }
 
+.ssq-group-oddeven {
+  font-size: 0.78em;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-weight: 600;
+  margin-left: 8px;
+  white-space: nowrap;
+}
+
+/* 奇偶比理想 3:3 */
+.ssq-oddeven-ideal {
+  color: #27ae60;
+  background: #e8f8f0;
+}
+
+/* 奇偶比良好 4:2 / 2:4 */
+.ssq-oddeven-good {
+  color: #2980b9;
+  background: #ebf5fb;
+}
+
+/* 奇偶比偏态 5:1 / 1:5 */
+.ssq-oddeven-warn {
+  color: #e67e22;
+  background: #fef5e7;
+}
+
+/* 奇偶比极端 6:0 / 0:6 */
+.ssq-oddeven-extreme {
+  color: #e74c3c;
+  background: #fdedec;
+}
+
 /* 复制区域 */
 .ssq-copy-section {
   margin-top: 15px;
@@ -3231,13 +3264,14 @@ button.success {
   position: relative;
   z-index: 1;
   min-height: 100vh;
+  background: #f5f7fa;
 }
 
 /* 页面头部 */
 .ssq-header {
   position: relative;
   text-align: center;
-  padding: 60px 20px 40px;
+  padding: 55px 20px 40px;
   overflow: hidden;
   background: linear-gradient(135deg, #ff4757 0%, #ff6b81 40%, #3742fa 100%);
   color: white;
@@ -3253,25 +3287,97 @@ button.success {
   pointer-events: none;
 }
 
-.ssq-back-btn {
-  position: absolute;
-  top: 20px;
-  left: 20px;
-  padding: 8px 16px;
-  background: rgba(255,255,255,0.2);
-  border: 1px solid rgba(255,255,255,0.4);
-  border-radius: 20px;
+/* 返回按钮独立区域 */
+.ssq-back-bar {
+  padding: 16px 20px;
+  background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+  border-bottom: 2px solid #dee2e6;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+}
+
+.ssq-back-btn-new {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 24px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border: none;
+  border-radius: 25px;
   color: white;
   cursor: pointer;
-  font-size: 0.9em;
-  transition: all 0.3s;
+  font-size: 0.95em;
+  font-weight: 600;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+  letter-spacing: 0.5px;
+}
+
+.ssq-back-icon {
+  font-size: 1.3em;
+  transition: transform 0.3s;
+  display: inline-block;
+}
+
+.ssq-back-btn-new:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(102, 126, 234, 0.4);
+}
+
+.ssq-back-btn-new:hover .ssq-back-icon {
+  transform: translateX(-4px);
+}
+
+.ssq-back-btn-new:active {
+  transform: translateY(0) scale(0.98);
+  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
+}
+
+/* 旧版返回按钮样式（保留以防其他地方使用） */
+.ssq-back-btn {
+  position: absolute;
+  top: 18px;
+  left: 20px;
+  padding: 10px 20px;
+  background: rgba(255,255,255,0.25);
+  border: 2px solid rgba(255,255,255,0.5);
+  border-radius: 25px;
+  color: white;
+  cursor: pointer;
+  font-size: 0.95em;
+  font-weight: 600;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   z-index: 10;
-  backdrop-filter: blur(10px);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15), 
+              0 2px 4px rgba(255,255,255,0.1) inset;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  letter-spacing: 0.5px;
+}
+
+.ssq-back-btn::before {
+  content: '←';
+  font-size: 1.2em;
+  transition: transform 0.3s;
+  display: inline-block;
 }
 
 .ssq-back-btn:hover {
-  background: rgba(255,255,255,0.35);
+  background: rgba(255,255,255,0.4);
+  border-color: rgba(255,255,255,0.7);
+  transform: translateX(-4px);
+  box-shadow: 0 6px 16px rgba(0,0,0,0.2), 
+              0 2px 6px rgba(255,255,255,0.15) inset;
+}
+
+.ssq-back-btn:hover::before {
   transform: translateX(-3px);
+}
+
+.ssq-back-btn:active {
+  transform: translateX(-2px) scale(0.98);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.15);
 }
 
 .ssq-logo {
@@ -3960,8 +4066,21 @@ button.success {
 
 /* 双色球页面移动端适配 */
 @media (max-width: 768px) {
+  .ssq-back-bar {
+    padding: 12px 15px;
+  }
+  
+  .ssq-back-btn-new {
+    padding: 8px 18px;
+    font-size: 0.88em;
+  }
+  
+  .ssq-back-icon {
+    font-size: 1.2em;
+  }
+  
   .ssq-header {
-    padding: 40px 15px 30px;
+    padding: 45px 15px 30px;
   }
   
   .ssq-title {

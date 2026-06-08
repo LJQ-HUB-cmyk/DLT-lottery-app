@@ -1105,7 +1105,8 @@ function App() {
         const backSum = p.back.reduce((a, b) => a + b, 0);
         const oddCount = p.front.filter(n => n % 2 !== 0).length;
         const evenCount = p.front.length - oddCount;
-        const oddEvenMark = (oddCount >= 2 && oddCount <= 3) ? '✓' : '⚠';
+        // 三级标记：2:3/3:2✓ / 1:4/4:1无标记 / 0:5/5:0⚠
+        const oddEvenMark = (oddCount >= 2 && oddCount <= 3) ? '✓' : (oddCount === 0 || oddCount === p.front.length) ? '⚠' : '';
         text += `第${idx + 1}组: ${frontStr} | ${backStr} (和值:${frontSum}/${backSum}, 奇偶:${oddCount}:${evenCount}${oddEvenMark})\n`;
       });
       text += '\n';
@@ -2221,8 +2222,10 @@ function App() {
                             const oddCount = p.front.filter(n => n % 2 !== 0).length;
                             const evenCount = p.front.length - oddCount;
                             const ratio = `${oddCount}:${evenCount}`;
-                            const isIdeal = oddCount >= 2 && oddCount <= 3;
-                            return isIdeal ? `${ratio} ✓` : `${ratio} ⚠`;
+                            // 三级评价：理想(2:3/3:2)✓ / 良好(1:4/4:1) / 偏态(0:5/5:0)⚠
+                            if (oddCount >= 2 && oddCount <= 3) return `${ratio} ✓`;
+                            if (oddCount === 1 || oddCount === p.front.length - 1) return `${ratio}`;
+                            return `${ratio} ⚠`;
                           })()}</span>
                         </div>
                       </div>

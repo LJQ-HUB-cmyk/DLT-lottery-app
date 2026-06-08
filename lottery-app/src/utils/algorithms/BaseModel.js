@@ -41,19 +41,28 @@ export class BaseModel {
   }
 
   /**
-   * 智能前区采样（通用方法）—— 奇偶分层采样
-   * 保证前区号码奇偶比为2:3或3:2（理想比例），避免0:5或5:0极端分布
+   * 智能前区采样（通用方法）—— 奇偶概率分布采样
+   * 按历史奇偶比概率分布采样目标奇数数量，覆盖2:3/3:2(主要)和1:4/4:1(次要)
+   * 仅排除极端的0:5和5:0（历史占比<3%）
    * 在每个奇偶池内仍按权重加权选择，兼顾评分逻辑与统计约束
    * @param {Object} weights - 权重对象 {号码: 权重}
    * @param {number} count - 选择数量
    * @returns {number[]} 选中的号码数组
    */
   smartFrontSample(weights, count) {
-    // ===== 奇偶分层采样 =====
-    const idealOddMin = Math.round(count * 0.4); // 2 (for count=5)
-    const idealOddMax = Math.round(count * 0.6); // 3 (for count=5)
-    // 随机选择目标奇数数量：idealOddMin 或 idealOddMax（各50%概率，匹配历史分布）
-    const targetOddCount = idealOddMin + Math.floor(Math.random() * (idealOddMax - idealOddMin + 1));
+    // ===== 奇偶概率分布采样 =====
+    // 历史分布（最近30期大乐透）：2:3=33%, 3:2=33%, 1:4=13%, 4:1=17%, 0:5=3%
+    // 按概率加权选择目标奇数数量，覆盖4:1和1:4但不覆盖0:5/5:0
+    const oddTargetDistribution = []; // 累积概率表
+    for (let odd = 1; odd <= count - 1; odd++) { // 排除0和count（0:5和5:0极端）
+      // 偏离理想中心的距离越小，概率越高
+      const idealCenter = count / 2; // 2.5 for count=5
+      const distance = Math.abs(odd - idealCenter);
+      // 概率权重：中心最高，向两边递减
+      const weight = distance === 0.5 ? 33 : distance === 1 ? 20 : distance === 1.5 ? 10 : distance === 2 ? 5 : 1;
+      for (let w = 0; w < weight; w++) oddTargetDistribution.push(odd);
+    }
+    const targetOddCount = oddTargetDistribution[Math.floor(Math.random() * oddTargetDistribution.length)];
 
     // 分离奇偶号码池及对应权重
     const allNumbers = Object.keys(weights).map(Number);
@@ -222,51 +231,42 @@ export class BaseModel {
   
   /**
    * 强制奇偶比约束
-   * 确保前区号码的奇偶比在理想范围内（2:3或3:2）
+   * 确保前区号码不出现0:5或5:0极端比例，允许1:4和4:1
    * 用于不使用smartFrontSample的算法（如BalancedStrategy、ZoneFrequency）的后处理
    * @param {number[]} front - 前区号码数组
    * @param {number[]} allNumbers - 全量号码池（默认1~FRONT_RANGE）
-   * @param {number} minOdd - 最少奇数数量（默认2）
-   * @param {number} maxOdd - 最大奇数数量（默认3）
    * @returns {number[]} 修正后的号码数组
    */
-  enforceParityRatio(front, allNumbers = null, minOdd = 2, maxOdd = 3) {
+  enforceParityRatio(front, allNumbers = null) {
     if (!allNumbers) {
       allNumbers = Array.from({ length: CONFIG.FRONT_RANGE }, (_, i) => i + 1);
     }
   
     const oddCount = front.filter(n => n % 2 !== 0).length;
+    const count = front.length;
   
-    // 已经在理想范围内，无需调整
-    if (oddCount >= minOdd && oddCount <= maxOdd) return [...front];
+    // 允许1:4和4:1，仅排除0:5和5:0极端比例
+    if (oddCount >= 1 && oddCount <= count - 1) return [...front];
   
     const frontCopy = [...front];
   
-    // 需要增加奇数（当前偏偶：0:5或1:4）
-    if (oddCount < minOdd) {
-      const needOdd = minOdd - oddCount;
+    // 全偶(0:5)：需要添加至少1个奇数
+    if (oddCount === 0) {
       const oddCandidates = allNumbers.filter(n => n % 2 !== 0 && !frontCopy.includes(n));
       const evenInFront = frontCopy.filter(n => n % 2 === 0);
-  
-      for (let i = 0; i < needOdd && i < evenInFront.length && oddCandidates.length > 0; i++) {
-        const replaceIdx = frontCopy.indexOf(evenInFront[i]);
-        const pick = oddCandidates[Math.floor(Math.random() * oddCandidates.length)];
-        frontCopy[replaceIdx] = pick;
-        oddCandidates.splice(oddCandidates.indexOf(pick), 1);
+      if (oddCandidates.length > 0 && evenInFront.length > 0) {
+        const replaceIdx = frontCopy.indexOf(evenInFront[Math.floor(Math.random() * evenInFront.length)]);
+        frontCopy[replaceIdx] = oddCandidates[Math.floor(Math.random() * oddCandidates.length)];
       }
     }
   
-    // 需要减少奇数（当前偏奇：4:1或5:0）
-    if (oddCount > maxOdd) {
-      const needEven = oddCount - maxOdd;
+    // 全奇(5:0)：需要添加至少1个偶数
+    if (oddCount === count) {
       const evenCandidates = allNumbers.filter(n => n % 2 === 0 && !frontCopy.includes(n));
       const oddInFront = frontCopy.filter(n => n % 2 !== 0);
-  
-      for (let i = 0; i < needEven && i < oddInFront.length && evenCandidates.length > 0; i++) {
-        const replaceIdx = frontCopy.indexOf(oddInFront[i]);
-        const pick = evenCandidates[Math.floor(Math.random() * evenCandidates.length)];
-        frontCopy[replaceIdx] = pick;
-        evenCandidates.splice(evenCandidates.indexOf(pick), 1);
+      if (evenCandidates.length > 0 && oddInFront.length > 0) {
+        const replaceIdx = frontCopy.indexOf(oddInFront[Math.floor(Math.random() * oddInFront.length)]);
+        frontCopy[replaceIdx] = evenCandidates[Math.floor(Math.random() * evenCandidates.length)];
       }
     }
   

@@ -78,9 +78,9 @@ export class HybridModel extends BaseModel {
       const zones = new Set(selected.map(n => Math.floor((n - 1) / 5)));
       if (zones.size < 3) continue;
 
-      // 奇偶比检查：不符合2:3或3:2的跳过（避免极端比例浪费搜索轮次）
+      // 奇偶比检查：排除0:5和5:0极端比例，允许1:4和4:1
       const oddCount = selected.filter(n => n % 2 !== 0).length;
-      if (oddCount < 2 || oddCount > 3) continue;
+      if (oddCount === 0 || oddCount === CONFIG.FRONT_COUNT) continue;
 
       // 计算条件概率最优后区号码
       const probableBack = Object.entries(conditionalProb.back)
@@ -146,9 +146,7 @@ export class HybridModel extends BaseModel {
 
     // 奇偶平衡（连续归一化：2:3/3:2满分10，1:4/4:1半5分，0:5/5:0不加分）
     const oddCount = front.filter(n => n % 2 !== 0).length;
-    const idealOddMin = Math.round(CONFIG.FRONT_COUNT * 0.4);
-    const idealOddMax = Math.round(CONFIG.FRONT_COUNT * 0.6);
-    if (oddCount >= idealOddMin && oddCount <= idealOddMax) {
+    if (oddCount >= 2 && oddCount <= 3) {
       score += 10; // 理想比例满分
     } else if (oddCount === 1 || oddCount === CONFIG.FRONT_COUNT - 1) {
       score += 5;  // 1:4或4:1半分

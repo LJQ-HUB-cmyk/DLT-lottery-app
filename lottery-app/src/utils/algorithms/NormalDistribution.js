@@ -58,9 +58,9 @@ export class NormalDistributionModel extends BaseModel {
       const diffF = Math.abs(sumF - targetSumFront);
       const diffB = Math.abs(sumB - targetSumBack);
 
-      // 奇偶比检查：不符合2:3或3:2的跳过（避免极端比例浪费搜索轮次）
+      // 奇偶比检查：排除0:5和5:0极端比例，允许1:4和4:1
       const fOddCount = f.filter(n => n % 2 !== 0).length;
-      if (fOddCount < 2 || fOddCount > 3) continue;
+      if (fOddCount === 0 || fOddCount === CONFIG.FRONT_COUNT) continue;
 
       // 综合评分：和值接近度 + 组合质量 + 区间覆盖
       const sumScore = 100 - (diffF / targetSumFront * 50 + diffB / targetSumBack * 50);

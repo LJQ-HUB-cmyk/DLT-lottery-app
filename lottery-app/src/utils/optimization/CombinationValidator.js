@@ -115,13 +115,13 @@ export class CombinationValidator {
     }
 
     // 7. 后区跨度检查（权重5分）
-    const backSpan = back[back.length - 1] - back[0];
-    if (backSpan === 0) {
-      score -= 5;
-      issues.push('后区两个号码相同（不可能）');
-    } else if (backSpan < 2) {
-      score -= 3;
-      issues.push(`后区跨度${backSpan}太小`);
+    if (back.length >= 2) {
+      const backSpan = back[back.length - 1] - back[0];
+      if (backSpan < 2) {
+        // 后区跨度为1（相邻号码）在历史开奖中并不少见，仅轻微扣分
+        score -= 2;
+        issues.push(`后区跨度${backSpan}偏小，但不常见跨度范围2-10`);
+      }
     }
 
     const passed = score >= 70;
@@ -145,7 +145,7 @@ export class CombinationValidator {
         zoneCoverage: zones.size,
         consecutiveGroups,
         backOddEvenRatio: `${backOddCount}:${backEvenCount}`,
-        backSpan
+        backSpan: back.length >= 2 ? back[back.length - 1] - back[0] : 0
       }
     };
   }

@@ -214,6 +214,10 @@ class LotteryAnalyzer {
       }
     }
     
+    // 数据顺序确认：数据文件line1=最旧, line211=最新，已按时间顺序排列
+    // historyData[0]=最旧期, historyData[n-1]=最新期，无需反转
+    console.log(` 数据已加载: ${this.historyData.length}期, 最旧=${JSON.stringify(this.historyData[0]?.front?.slice(0,3))}... 最新=${JSON.stringify(this.historyData[this.historyData.length-1]?.front?.slice(0,3))}...`);
+
     // 数据加载完成后初始化分析器
     if (count > 0) {
       this._initializeAnalyzers();
@@ -1184,7 +1188,8 @@ class LotteryAnalyzer {
 
     try {
       results.bayesian = BayesianDanTuoModel.recommendFront(this, danCount, strategy);
-      results.bayesian.back = BayesianDanTuoModel.recommendBack(this, 1);
+      const bayesianBack = BayesianDanTuoModel.recommendBack(this, 1);
+      results.bayesian.back = bayesianBack.danSelected && bayesianBack.danSelected.length > 0 ? bayesianBack : null;
       results.bayesian.modelInfo = BayesianDanTuoModel.getDescription();
     } catch (e) {
       console.warn('⚠️ 贝叶斯动态胆拖推荐失败:', e);
@@ -1193,7 +1198,8 @@ class LotteryAnalyzer {
 
     try {
       results.normal = NormalDanTuoModel.recommendFront(this, danCount, strategy);
-      results.normal.back = NormalDanTuoModel.recommendBack(this, 1);
+      const normalBack = NormalDanTuoModel.recommendBack(this, 1);
+      results.normal.back = normalBack.danSelected && normalBack.danSelected.length > 0 ? normalBack : null;
       results.normal.modelInfo = NormalDanTuoModel.getDescription();
     } catch (e) {
       console.warn('⚠️ 正态分布胆拖推荐失败:', e);
@@ -1202,7 +1208,8 @@ class LotteryAnalyzer {
 
     try {
       results.zhouyi = ZhouyiDanTuoModel.recommendFront(this, danCount, strategy);
-      results.zhouyi.back = ZhouyiDanTuoModel.recommendBack(this, 1);
+      const zhouyiBack = ZhouyiDanTuoModel.recommendBack(this, 1);
+      results.zhouyi.back = zhouyiBack.danSelected && zhouyiBack.danSelected.length > 0 ? zhouyiBack : null;
       results.zhouyi.modelInfo = ZhouyiDanTuoModel.getDescription();
     } catch (e) {
       console.warn('⚠️ 周易时空胆拖推荐失败:', e);

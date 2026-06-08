@@ -949,6 +949,112 @@ button.success {
   gap: 15px;
 }
 
+/* 中奖规则速查表 */
+.prize-quick-ref {
+  margin-top: 15px;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  backdrop-filter: blur(4px);
+}
+
+.prize-quick-ref-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 5px 6px;
+}
+
+.prize-ref-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 5px;
+  font-size: 0.68em;
+  line-height: 1.2;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #ddd;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.prize-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.15);
+  color: #fff;
+  font-size: 0.65em;
+  font-weight: bold;
+  flex-shrink: 0;
+}
+
+.prize-ref-item small {
+  font-size: 0.85em;
+  opacity: 0.6;
+  margin-left: auto;
+  white-space: nowrap;
+  flex-shrink: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.prize-ref-item.prize-1 {
+  background: rgba(255, 215, 0, 0.2);
+  color: #ffd700;
+  font-weight: bold;
+}
+
+.prize-ref-item.prize-1 .prize-badge {
+  background: rgba(255, 215, 0, 0.4);
+  color: #ffd700;
+}
+
+.prize-ref-item.prize-2 {
+  background: rgba(255, 180, 0, 0.15);
+  color: #ffb400;
+  font-weight: bold;
+}
+
+.prize-ref-item.prize-2 .prize-badge {
+  background: rgba(255, 180, 0, 0.3);
+  color: #ffb400;
+}
+
+.prize-ref-item.prize-3 {
+  color: #fff;
+}
+
+.prize-ref-item.prize-7 {
+  font-size: 0.62em;
+}
+
+@media (max-width: 480px) {
+  .prize-quick-ref-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 4px;
+  }
+  .prize-ref-item {
+    padding: 5px 6px;
+    font-size: 0.7em;
+  }
+  .prize-ref-item small {
+    font-size: 0.8em;
+  }
+  .prize-badge {
+    width: 16px;
+    height: 16px;
+    font-size: 0.7em;
+  }
+  .prize-ref-item.prize-7 {
+    font-size: 0.65em;
+  }
+}
+
 .draw-info {
   display: flex;
   justify-content: space-between;

@@ -620,9 +620,10 @@ export class FrontDanOptimizer {
       }
     }
 
-    // 连号潜力注入（所有策略后处理）
-    // 约50%历史期有连号(如06-07、02-03、25-26)，确保推荐结果也能覆盖这种模式
-    // 如果当前胆码没有连号对，尝试替换最弱胆码为某个胆码的连号邻居
+    // 连号潜力注入 + 小号覆盖注入（所有策略后处理）
+    // 连号：约50%历史期有连号(如06-07、02-03、25-26)
+    // 小号：约27%历史期有2+个<10号码(如03 05、06 07)
+    // 确保推荐结果能覆盖这两种高频模式
     if (danCount >= 2) {
       const sortedDan = [...selected].sort((a, b) => a - b);
       let hasConsecutive = false;
@@ -633,39 +634,52 @@ export class FrontDanOptimizer {
         }
       }
 
-      if (!hasConsecutive) {
-        // 找最弱的胆码
+      // 统计小号(<10)数量
+      const smallCount = selected.filter(n => n < 10).length;
+
+      // 优先级：如果缺少小号(0或1个<10) AND 缺少连号 → 先做小号+连号双重注入
+      // 如果只缺少连号 → 只做连号注入
+      // 如果只缺少小号 → 只做小号注入
+      const needSmall = smallCount < 2; // 需要补充小号(历史27%有2+个小号)
+      const needConsecutive = !hasConsecutive;
+
+      if (needSmall || needConsecutive) {
+        // 找最弱的胆码(替换目标)
         const worstDan = selected.reduce((worst, num) => {
           const s = scored.find(s2 => s2.number === num);
           const score = s ? s.score : 0;
           return score < worst.score ? { num, score } : worst;
         }, { num: 0, score: Infinity });
 
-        // 找所有已选胆码的连号邻居(±1, ±2)
-        const allNeighbors = []; // {num, score, distance}
-        for (const selNum of selected) {
-          for (const neighbor of [selNum - 1, selNum + 1, selNum - 2, selNum + 2]) {
-            if (neighbor >= 1 && neighbor <= CONFIG.FRONT_RANGE && !selected.includes(neighbor)) {
-              const s = scored.find(s2 => s2.number === neighbor);
-              if (s) {
-                allNeighbors.push({ num: neighbor, score: s.score, distance: Math.abs(neighbor - selNum) });
-              }
-            }
+        // 构建候选池：根据优先需求筛选
+        const candidates = []; // {num, score, priority}
+
+        for (const s of scored) {
+          if (selected.includes(s.number)) continue;
+          const isSmall = s.number < 10;
+          const isConsecutiveNeighbor = selected.some(sel => Math.abs(sel - s.number) <= 2);
+          // 计算优先级：同时满足小号+连号→最高优先，仅满足一项→中等优先
+          let priority = 0;
+          if (isSmall && isConsecutiveNeighbor) priority = 3; // 小号+连号双重注入
+          else if (needSmall && isSmall) priority = 2; // 纯小号注入
+          else if (needConsecutive && isConsecutiveNeighbor) priority = 1; // 纯连号注入
+          if (priority > 0) {
+            candidates.push({ num: s.number, score: s.score, priority, distance: isConsecutiveNeighbor ? Math.min(...selected.map(sel => Math.abs(sel - s.number))) : 999 });
           }
         }
 
-        // 优先选gap=1(纯连号)的邻居，其次选gap=2(跳号)
-        allNeighbors.sort((a, b) => {
-          // 优先距离1，其次评分
+        // 按优先级(降序) → 距离(升序) → 评分(降序) 排序
+        candidates.sort((a, b) => {
+          if (a.priority !== b.priority) return b.priority - a.priority;
           if (a.distance !== b.distance) return a.distance - b.distance;
           return b.score - a.score;
         });
 
-        if (allNeighbors.length > 0) {
-          const bestNeighbor = allNeighbors[0];
-          // 邻居分数不低于最弱胆码的70%，允许略弱但形成连码模式
-          if (bestNeighbor.score >= worstDan.score * 0.7) {
-            selected[selected.indexOf(worstDan.num)] = bestNeighbor.num;
+        if (candidates.length > 0) {
+          const bestCandidate = candidates[0];
+          // 候选分数不低于最弱胆码的70%
+          if (bestCandidate.score >= worstDan.score * 0.7) {
+            selected[selected.indexOf(worstDan.num)] = bestCandidate.num;
           }
         }
       }

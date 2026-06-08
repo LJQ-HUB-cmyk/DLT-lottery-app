@@ -507,38 +507,24 @@ export class DanTuoOptimizer {
       // 计算拖码与每个胆码的间距，检查是否符合历史常见的间距分布
       const gapsWithDan = danNumbers.map(dan => Math.abs(tuoNum - dan));
       // 历史前区5个号码的间距分布：约50%期有连号(gap=1)，约30%有跳号(gap=2)
-      // 合理间距范围改为[1, 12]，覆盖连号(gap=1)、跳号(gap=2)和中等间距(gap=3-12)
-      // gap=1(连号)加分权重略高，反映历史连号高频出现规律
+      // 合理间距范围[1, 12]，覆盖连号(gap=1)、跳号(gap=2)和中等间距(gap=3-12)
+      // 温和权重：gap=1权重1.3，gap=2权重1.1，其余1.0（不过度偏向连号）
       let gapScore = 0;
       if (danNumbers.length > 0) {
         const weightedGapCount = gapsWithDan.reduce((sum, g) => {
           if (g >= 1 && g <= 12) {
-            // gap=1(纯连号)权重1.5, gap=2(跳号)权重1.2, 其余权重1.0
-            const weight = g === 1 ? 1.5 : g === 2 ? 1.2 : 1.0;
+            // 温和权重：连号1.3，跳号1.1，其余1.0
+            const weight = g === 1 ? 1.3 : g === 2 ? 1.1 : 1.0;
             return sum + weight;
           }
           return sum;
         }, 0);
-        const maxWeightedGap = danNumbers.length * 1.5; // 全部连号时满分
+        const maxWeightedGap = danNumbers.length * 1.3; // 满分基准
         gapScore = (weightedGapCount / maxWeightedGap) * 5;
       } else {
         gapScore = 2.5;
       }
       score += gapScore;
-
-      // 8a. 连号加分（3分满分）- 拖码与胆码形成连号组合时加分
-      // 约50%历史期有连号，拖码与胆码形成连号组合覆盖这种高频模式
-      // 连号(gap=1)加3分，跳号(gap=2)加1分
-      const tuoConsecutiveBonus = (() => {
-        let bonus = 0;
-        for (const dan of danNumbers) {
-          const gap = Math.abs(tuoNum - dan);
-          if (gap === 1) bonus = Math.max(bonus, 3); // 连号满分
-          else if (gap === 2 && bonus < 1) bonus = 1; // 跳号轻微加分
-        }
-        return bonus;
-      })();
-      score += tuoConsecutiveBonus;
 
       // 8b. 跨区协同性维度（3分满分，优化3：防止胆码拖码过度集中）
       // 拖码与胆码同区过多→扣分；拖码在胆码未覆盖区→加分

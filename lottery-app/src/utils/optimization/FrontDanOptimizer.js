@@ -69,9 +69,9 @@ export class FrontDanOptimizer {
     };
     // 7. 计算每个号码的综合得分（策略差异化评分，总分约100）
     // 改进1~5：均衡/保守差异化+共享趋势工具+自适应扰动
-    // 热号策略：9维度(热度信号17+频率逆袭6+条件概率20+5小区趋势15+胆码重号降温-1~-3+动量加速5+时间衰减10+历史相似度5+区间饱和度±5+冷却惩罚-5 = 47~73)
-    // 均衡策略：6维度(频率动量15+条件概率30+遗漏偏离度20+时间衰减15+频率趋势10+5小区趋势10 = 100)
-    // 保守策略：6维度(频率动量8+条件概率25+遗漏偏离度25+时间衰减15+频率趋势7+5小区趋势7 = 80~87)
+    // 热号策略：9维度(热度信号17+频率逆袭6+条件概率20+5小区趋势15+胆码重号降温-1~-3+动量加速5+时间衰减10+历史相似度5+区间饱和度±5+冷却惩罚-5+连号协同5 = 52~78)
+    // 均衡策略：7维度(频率动量15+条件概率30+遗漏偏离度20+时间衰减15+频率趋势10+5小区趋势10+连号协同5 = 105)
+    // 保守策略：7维度(频率动量8+条件概率25+遗漏偏离度25+时间衰减15+频率趋势7+5小区趋势7+连号协同3 = 85~90)
     const scored = [];
     
     // 先计算全局最大值用于归一化
@@ -391,6 +391,30 @@ export class FrontDanOptimizer {
         score += similarityBonus * 5;
       }
       
+      // 维度10: 连号协同加分（热号5分/均衡5分/保守3分满分）
+      // 历史数据：约50%的开奖期有至少1对连号(如06-07、02-03、25-26)
+      // 如果号码的相邻号码(±1,±2)也是统计强号，增加该号码的连号潜力加分
+      // 选择有连号潜力的号码作为胆码，与邻居形成连号组合，增加命中概率
+      const consecutiveNeighbors = [num - 1, num + 1, num - 2, num + 2]
+        .filter(n => n >= 1 && n <= CONFIG.FRONT_RANGE && n !== num);
+      let consecutiveBonus = 0;
+      for (const neighbor of consecutiveNeighbors) {
+        const neighborFreq = frontCounter[String(neighbor)] || frontCounter[neighbor] || 0;
+        const neighborCondProb = conditionalProb.front[neighbor] || 0;
+        const neighborOmission = omissionData.front[neighbor] || 0;
+        // 近邻(±1)权重更高，远邻(±2)权重更低
+        const isAdjacent = Math.abs(neighbor - num) === 1;
+        const weight = isAdjacent ? 1.0 : 0.5;
+        // 频率高于平均 → 邻居是强号 → 连号协同加分
+        if (neighborFreq > avgFreqPerNum) consecutiveBonus += weight * 1.5;
+        // 条件概率高于50%最大值 → 邻居依赖性强 → 连号协同加分
+        if (neighborCondProb > maxCondProb * 0.5) consecutiveBonus += weight * 1.5;
+        // 遗漏低于平均 → 近期出现过 → 连号协同概率更高
+        if (neighborOmission < avgFrontOmission) consecutiveBonus += weight * 1.0;
+      }
+      const consecutiveMax = strategy === 'hot' ? 5 : strategy === 'balanced' ? 5 : 3;
+      score += Math.min(consecutiveBonus, consecutiveMax);
+
       scored.push({
         number: num,
         score,
@@ -592,6 +616,57 @@ export class FrontDanOptimizer {
             .map(n => ({ num: n, score: scored.find(s => s.number === n)?.score || 0 }))
             .sort((a, b) => a.score - b.score)[0];
           selected[selected.indexOf(worstSelected.num)] = moderateOmissionCandidates[0].number;
+        }
+      }
+    }
+
+    // 连号潜力注入（所有策略后处理）
+    // 约50%历史期有连号(如06-07、02-03、25-26)，确保推荐结果也能覆盖这种模式
+    // 如果当前胆码没有连号对，尝试替换最弱胆码为某个胆码的连号邻居
+    if (danCount >= 2) {
+      const sortedDan = [...selected].sort((a, b) => a - b);
+      let hasConsecutive = false;
+      for (let i = 1; i < sortedDan.length; i++) {
+        if (sortedDan[i] - sortedDan[i - 1] <= 2) {
+          hasConsecutive = true;
+          break;
+        }
+      }
+
+      if (!hasConsecutive) {
+        // 找最弱的胆码
+        const worstDan = selected.reduce((worst, num) => {
+          const s = scored.find(s2 => s2.number === num);
+          const score = s ? s.score : 0;
+          return score < worst.score ? { num, score } : worst;
+        }, { num: 0, score: Infinity });
+
+        // 找所有已选胆码的连号邻居(±1, ±2)
+        const allNeighbors = []; // {num, score, distance}
+        for (const selNum of selected) {
+          for (const neighbor of [selNum - 1, selNum + 1, selNum - 2, selNum + 2]) {
+            if (neighbor >= 1 && neighbor <= CONFIG.FRONT_RANGE && !selected.includes(neighbor)) {
+              const s = scored.find(s2 => s2.number === neighbor);
+              if (s) {
+                allNeighbors.push({ num: neighbor, score: s.score, distance: Math.abs(neighbor - selNum) });
+              }
+            }
+          }
+        }
+
+        // 优先选gap=1(纯连号)的邻居，其次选gap=2(跳号)
+        allNeighbors.sort((a, b) => {
+          // 优先距离1，其次评分
+          if (a.distance !== b.distance) return a.distance - b.distance;
+          return b.score - a.score;
+        });
+
+        if (allNeighbors.length > 0) {
+          const bestNeighbor = allNeighbors[0];
+          // 邻居分数不低于最弱胆码的70%，允许略弱但形成连码模式
+          if (bestNeighbor.score >= worstDan.score * 0.7) {
+            selected[selected.indexOf(worstDan.num)] = bestNeighbor.num;
+          }
         }
       }
     }

@@ -101,10 +101,12 @@ function ShuangSeQiuPage({ onBack }) {
   // 生成智能推荐
   const handleGenerate = () => {
     if (!dataLoaded) { alert('数据未加载，请稍等'); return; }
+    console.log('🚀 开始双色球智能推荐, 模型:', selectedModels, '每组:', groupsPerModel);
     setIsGenerating(true);
     setTimeout(() => {
       try {
         const result = ssqAnalyzer.generateRecommendation(groupsPerModel, selectedModels);
+        console.log('✅ 推荐结果:', result.predictions.length, '组');
         setRecommendation(result);
       } catch (e) {
         console.error('❌ 生成失败:', e);

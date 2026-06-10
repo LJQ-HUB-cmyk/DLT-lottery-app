@@ -142,7 +142,7 @@ export class ZoneFrequencyModel extends BaseModel {
     };
 
     // ==================== 第四步：从每个选中区间选择最高分号码 ====================
-    const frontNumbers = [];
+    let frontNumbers = [];
 
     selectedFrontZones.forEach((zone) => {
       const zoneNums = [];

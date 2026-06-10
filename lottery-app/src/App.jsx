@@ -9,6 +9,7 @@ import { trackNumberGeneration, trackCopy, trackSave, trackDataUpdate, trackMode
 import AuthGuard from './components/AuthGuard';
 import DataVisualization from './components/DataVisualization';
 import ShuangSeQiuPage from './components/ShuangSeQiuPage';
+import ZoneAnalysisPanel from './components/ZoneAnalysisPanel';
 import './App.css';
 
 // 隐藏页面进入机制：连续点击标题7次（3秒内）可进入福彩双色球玩法页面
@@ -1323,6 +1324,11 @@ function App() {
             </section>
           );
         })()}
+
+        {/* 近60期区间分布分析 */}
+        {analyzer.historyData && analyzer.historyData.length > 0 && (
+          <ZoneAnalysisPanel historyData={analyzer.historyData} />
+        )}
 
         {/* 胆拖玩法 */}
         <section className="card dantuo-section">

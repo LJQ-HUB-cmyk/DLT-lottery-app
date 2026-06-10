@@ -16,50 +16,58 @@ export class BayesianDanTuoModel {
    * @returns {Object} { danSelected, tuoSelected, probabilityInfo, description }
    */
   static recommendFront(analyzer, danCount = 3, strategy = 'hot') {
-    console.log('🔮 贝叶斯动态胆拖推荐（前区）');
+    console.log('🔮 贝叶斯动态胆拖推荐（前区）- 样本量：近30期');
 
-    const [frontCounter] = analyzer.frequencyAnalyzer.analyzeFrequency();
-    const conditionalProb = analyzer.conditionalProbability.calculateConditionalProbability();
-    const omission = analyzer.omissionCalculator.calculateOmission();
-    const sumTrend = analyzer.trendAnalyzer.analyzeSumTrend();
-    const repeatAnalysis = analyzer.trendAnalyzer.analyzeRepeatNumbers();
     const activeData = analyzer.getActiveData();
-    const totalDraws = activeData.length;
 
-    if (totalDraws === 0) {
+    if (activeData.length === 0) {
       return { danSelected: [], tuoSelected: [], probabilityInfo: [], backDanSelected: [], backTuoSelected: [], description: '数据不足' };
     }
 
-    const lastDraw = activeData[activeData.length - 1];
+    // ========== 样本量控制：统一使用近30期数据 ==========
+    const recentData = activeData.slice(-30); // 近30期数据
+    const totalDraws = recentData.length;
+    const lastDraw = recentData[recentData.length - 1];
 
-    // 1. 先验概率（频率基础）
+    // 1. 先验概率（基于近30期频率，而非全量历史）
+    const recentFrontFreq = {}; // 近30期前区频率
+    for (let i = 1; i <= CONFIG.FRONT_RANGE; i++) recentFrontFreq[i] = 0;
+    for (const draw of recentData) {
+      for (const num of draw.front) recentFrontFreq[num]++;
+    }
     const priorFront = {};
     for (let i = 1; i <= CONFIG.FRONT_RANGE; i++) {
-      priorFront[i] = (frontCounter[String(i)] || frontCounter[i] || 0) / totalDraws;
+      priorFront[i] = recentFrontFreq[i] / (totalDraws || 1); // 近30期频率作为先验
     }
 
-    // 2. 时间加权得分（归一化到0-1范围，避免高频号过度主导）
+    // 条件概率和遗漏仍使用analyzer（这些维度需要更多数据才稳定）
+    const conditionalProb = analyzer.conditionalProbability.calculateConditionalProbability();
+    const omission = analyzer.omissionCalculator.calculateOmission();
+    const avgFrontOmission = analyzer.omissionCalculator.getAverageOmission('front');
+    const sumTrend = analyzer.trendAnalyzer.analyzeSumTrend();
+    const repeatAnalysis = analyzer.trendAnalyzer.analyzeRepeatNumbers();
+
+    // 2. 时间加权得分（基于近30期数据，归一化到0-1范围）
     const frontTimeScores = {}; 
     for (let i = 1; i <= CONFIG.FRONT_RANGE; i++) frontTimeScores[i] = 0; 
-    for (let idx = 0; idx < activeData.length; idx++) {
-      const draw = activeData[idx];
-      const timeWeight = Math.exp((idx - activeData.length + 1) / activeData.length) * 0.2;
+    for (let idx = 0; idx < recentData.length; idx++) {
+      const draw = recentData[idx];
+      const timeWeight = Math.exp((idx - recentData.length + 1) / recentData.length) * 0.2;
       for (const num of draw.front) frontTimeScores[num] += timeWeight; 
     }
     const frontMaxTime = Math.max(...Object.values(frontTimeScores)) || 1;
     for (let i = 1; i <= CONFIG.FRONT_RANGE; i++) frontTimeScores[i] /= frontMaxTime;
 
-    // 3. 近期频率趋势
-    const recentCount = Math.min(CONFIG.RECENT_DRAWS_FOR_TREND, activeData.length);
-    const recentFrontFreq = {};
-    for (let i = 1; i <= CONFIG.FRONT_RANGE; i++) recentFrontFreq[i] = 0;
-    const recentDraws = activeData.slice(-recentCount);
-    for (const draw of recentDraws) {
-      for (const num of draw.front) recentFrontFreq[num]++;
+    // 3. 近期频率趋势（已在先验概率中计算近30期频率，此处取近10期作为动量对比）
+    const recentMomentumCount = Math.min(10, recentData.length);
+    const recentMomentumFreq = {};
+    for (let i = 1; i <= CONFIG.FRONT_RANGE; i++) recentMomentumFreq[i] = 0;
+    const recentMomentumDraws = recentData.slice(-recentMomentumCount);
+    for (const draw of recentMomentumDraws) {
+      for (const num of draw.front) recentMomentumFreq[num]++;
     }
 
-    // 4. 遗漏均值
-    const frontAvgOmission = analyzer.omissionCalculator.getAverageOmission('front');
+    // 4. 遗漏均值（已从analyzer获取，上移）
 
     // 5. 后验概率计算（8维评分，与BayesianDynamic模型核心一致）
     const posteriorFront = {};
@@ -67,15 +75,15 @@ export class BayesianDanTuoModel {
       let score = priorFront[i] * 0.15;
       score += (frontTimeScores[i] || 0) * 0.12;
 
-      const recentRate = recentFrontFreq[i] / recentCount;
-      const overallRate = (frontCounter[String(i)] || frontCounter[i] || 0) / totalDraws;
+      const recentRate = recentMomentumFreq[i] / recentMomentumCount; // 近10期频率（动量）
+      const overallRate = priorFront[i]; // 近30期频率作为基准
       score += (recentRate - overallRate) * 0.12;
 
       score += (conditionalProb.front[i] || 0) * CONFIG.CONDITIONAL_WEIGHT * conditionalProb.confidence;
 
       const currentOmission = omission.front[i] || 0;
-      const omissionDiff = Math.abs(currentOmission - frontAvgOmission);
-      const omissionFactor = Math.max(0, 1 - omissionDiff / (frontAvgOmission * 2));
+      const omissionDiff = Math.abs(currentOmission - avgFrontOmission);
+      const omissionFactor = Math.max(0, 1 - omissionDiff / (avgFrontOmission * 2));
       score += omissionFactor * 0.15;
 
       const zoneIndex = Math.floor((i - 1) / 5);
@@ -144,37 +152,48 @@ export class BayesianDanTuoModel {
    * 推荐后区胆码+拖码
    */
   static recommendBack(analyzer, backDanCount = 1) {
-    const [, backCounter] = analyzer.frequencyAnalyzer.analyzeFrequency();
+    const activeData = analyzer.getActiveData();
+
+    // ========== 样本量控制：统一使用近30期数据 ==========
+    const recentData = activeData.slice(-30);
+    const totalDraws = recentData.length;
+    const lastDraw = recentData[recentData.length - 1];
+
+    // 条件概率、遗漏、重号仍使用analyzer（这些维度需要更多数据才稳定）
     const conditionalProb = analyzer.conditionalProbability.calculateConditionalProbability();
     const omission = analyzer.omissionCalculator.calculateOmission();
     const repeatAnalysis = analyzer.trendAnalyzer.analyzeRepeatNumbers();
-    const activeData = analyzer.getActiveData();
-    const totalDraws = activeData.length;
-    const lastDraw = activeData[activeData.length - 1];
     const backAvgOmission = analyzer.omissionCalculator.getAverageOmission('back');
 
+    // 1. 先验概率（基于近30期频率）
+    const recentBackFreq = {};
+    for (let i = 1; i <= CONFIG.BACK_RANGE; i++) recentBackFreq[i] = 0;
+    for (const draw of recentData) {
+      for (const num of draw.back) recentBackFreq[num]++;
+    }
     const priorBack = {};
     for (let i = 1; i <= CONFIG.BACK_RANGE; i++) {
-      priorBack[i] = (backCounter[String(i)] || backCounter[i] || 0) / totalDraws;
+      priorBack[i] = recentBackFreq[i] / (totalDraws || 1); // 近30期频率作为先验
     }
 
+    // 2. 时间加权得分（基于近30期数据）
     const backTimeScores = {};
     for (let i = 1; i <= CONFIG.BACK_RANGE; i++) backTimeScores[i] = 0;
-    for (let idx = 0; idx < activeData.length; idx++) {
-      const draw = activeData[idx];
-      const timeWeight = Math.exp((idx - activeData.length + 1) / activeData.length) * 0.2;
+    for (let idx = 0; idx < recentData.length; idx++) {
+      const draw = recentData[idx];
+      const timeWeight = Math.exp((idx - recentData.length + 1) / recentData.length) * 0.2;
       for (const num of draw.back) backTimeScores[num] += timeWeight;
     }
-    // 归一化到0-1范围，避免高频号过度主导
     const backMaxTime = Math.max(...Object.values(backTimeScores)) || 1;
     for (let i = 1; i <= CONFIG.BACK_RANGE; i++) backTimeScores[i] /= backMaxTime;
 
-    const recentCount = Math.min(CONFIG.RECENT_DRAWS_FOR_TREND, activeData.length);
-    const recentBackFreq = {};
-    for (let i = 1; i <= CONFIG.BACK_RANGE; i++) recentBackFreq[i] = 0;
-    const recentDraws = activeData.slice(-recentCount);
-    for (const draw of recentDraws) {
-      for (const num of draw.back) recentBackFreq[num]++;
+    // 3. 近期动量（近10期频率对比近30期频率）
+    const recentMomentumCount = Math.min(10, recentData.length);
+    const recentBackMomentum = {};
+    for (let i = 1; i <= CONFIG.BACK_RANGE; i++) recentBackMomentum[i] = 0;
+    const recentMomentumDraws = recentData.slice(-recentMomentumCount);
+    for (const draw of recentMomentumDraws) {
+      for (const num of draw.back) recentBackMomentum[num]++;
     }
 
     const scored = []; // 8维评分结果
@@ -182,8 +201,8 @@ export class BayesianDanTuoModel {
     for (let i = 1; i <= CONFIG.BACK_RANGE; i++) {
       let score = priorBack[i] * 0.15;                     // 维度1: 先验概率 15%
       score += (backTimeScores[i] || 0) * 0.12;           // 维度2: 时间加权 12%（已归一化）
-      const recentRate = recentBackFreq[i] / recentCount;
-      const overallRate = (backCounter[String(i)] || backCounter[i] || 0) / totalDraws;
+      const recentRate = recentBackMomentum[i] / recentMomentumCount;
+      const overallRate = priorBack[i]; // 近30期频率作为基准
       score += (recentRate - overallRate) * 0.12;         // 维度3: 动量因子 12%
       score += (conditionalProb.back[i] || 0) * CONFIG.BACK_CONDITIONAL_WEIGHT * conditionalProb.confidence; // 维度4: 条件概率 20%
       const currentOmission = omission.back[i] || 0;

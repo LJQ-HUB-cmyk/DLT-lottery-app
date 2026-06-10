@@ -13,10 +13,18 @@ export class BackDanOptimizer {
    * @param {number} backDanCount - 需要推荐的胆码数量
    * @returns {number[]} 推荐的后区胆码
    */
-  static optimize(analyzer, backDanCount = 1, strategy = 'balanced') {
+  static optimize(analyzer, backDanCount = 1, strategy = 'balanced', dimensionMultipliers = null) {
     console.log('🎯 后区胆码智能推荐（多维度评分）');
     
-    // 1. 获取条件概率
+    // 维度权重倍率（简化优化：移除负贡献维度）
+    // hot后区：freqMomentum含恒热反馈(-4.3%)→仅保留频率+动量不含恒热
+    // hot/balanced后区：频率趋势有负贡献→移除
+    const defaultMultipliers = {
+      hot: { conditionalProb: 1, omissionDeviation: 1, freqMomentum: 1, timeDecay: 1, freqTrend: 0, zone4Trend: 1, repeatFactor: 1, coolingPenalty: 1 },
+      balanced: { conditionalProb: 1, omissionDeviation: 1, freqMomentum: 1, timeDecay: 1, freqTrend: 0, zone4Trend: 1 },
+      conservative: { conditionalProb: 1, omissionDeviation: 1, freqMomentum: 1, timeDecay: 1, freqTrend: 0, zone4Trend: 1 }
+    };
+    const dm = dimensionMultipliers || defaultMultipliers[strategy];
     const conditionalProb = analyzer.conditionalProbability.calculateConditionalProbability();
     const confidence = conditionalProb.confidence || 0.3;
     
@@ -85,7 +93,7 @@ export class BackDanOptimizer {
       const condProb = conditionalProb.back[num] || 0;
       const maxCondProb = Math.max(...Object.values(conditionalProb.back));
       const normalizedCondProb = maxCondProb > 0 ? condProb / maxCondProb : 0;
-      score += normalizedCondProb * (strategy === 'hot' ? 15 : 20);
+      score += normalizedCondProb * (strategy === 'hot' ? 15 : 20) * dm.conditionalProb;
             
       // 维度2: 遗漏回归评分（20分满分）
       // 逻辑：适度遗漏最佳（既不太热也不太冷），符合均值回归原理
@@ -100,8 +108,7 @@ export class BackDanOptimizer {
       
       // 适度遗漏得分：偏离均值越近得分越高（10分满分）
       const normalizedOmission = maxAbsDeviation > 0 ? 1 - (absDeviation / maxAbsDeviation) : 0;
-      score += normalizedOmission * 10;
-      
+      let omissionDevRaw = normalizedOmission * 10;
       // 策略加成（10分）：
       // - 热号策略：偏向低遗漏（近期刚开出的号码）
       // - 均衡/保守策略：偏向高遗漏（冷号回归）
@@ -115,7 +122,7 @@ export class BackDanOptimizer {
               .map(d => Math.abs(d))
           );
           const hotness = maxNegDeviation > 0 ? Math.abs(omissionDeviation) / maxNegDeviation : 0;
-          score += hotness * 10;
+          omissionDevRaw += hotness * 10;
         }
       } else {
         if (omissionDeviation > 0) {
@@ -132,9 +139,10 @@ export class BackDanOptimizer {
           if (globalFreqRatio < avgFreqRatio) {
             strategyBonus *= globalFreqRatio / avgFreqRatio;
           }
-          score += strategyBonus;
+          omissionDevRaw += strategyBonus;
         }
       }
+      score += omissionDevRaw * dm.omissionDeviation;
             
       // 维度3: 频率+动量得分（15分满分）+ 热号恒热正向反馈
       const freqBase = maxFreq > 0 ? (freq / maxFreq) * 10 : 0; // 基础频率 10分
@@ -142,24 +150,12 @@ export class BackDanOptimizer {
       const maxMomentum = Math.max(...Object.values(recentFreq.backMomentum).map(m => Math.abs(m)));
       const normalizedMomentum = maxMomentum > 0 ? momentum / maxMomentum : 0;
       let freqScore = freqBase + Math.max(0, normalizedMomentum) * 5; // 动量 5分
-      
-      // 热号恒热正向反馈：高频 + 正向动量 = 额外加分
-      // 逻辑：既是历史高频，近期又在升温，形成热号更热循环
-      if (strategy === 'hot') {
-        const totalBackFreq = Object.values(backCounter).reduce((sum, f) => sum + f, 0);
-        const globalFreqRatio = totalBackFreq > 0 ? freq / totalBackFreq : 0;
-        const avgFreqRatio = 1 / CONFIG.BACK_RANGE;
-        // 频率高于平均 且 动量为正 → 热号恒热加成
-        if (globalFreqRatio > avgFreqRatio && momentum > 0) {
-          const hotBonus = Math.min(normalizedMomentum * 5, 5); // 最高5分
-          freqScore += hotBonus;
-        }
-      }
-      score += freqScore;
+      // [简化] 移除热号恒热正向反馈：回测显示该逻辑贡献-4.3%（拖累命中率）
+      score += freqScore * dm.freqMomentum;
             
       // 维度4: 时间衰减得分（热号10分，均衡/保守15分）- 已归一化
       const timeWeight = timeWeights[num] || 0;
-      score += timeWeight * (strategy === 'hot' ? 10 : 15);
+      score += timeWeight * (strategy === 'hot' ? 10 : 15) * dm.timeDecay;
             
       // 维度5: 频率趋势加分（热号10分，均衡/保守15分）
       // 按项目设计决策：取消区间均衡补偿，改为基于历史频率的趋势加分
@@ -169,7 +165,7 @@ export class BackDanOptimizer {
       const freqTrendMax = strategy === 'hot' ? 10 : 15;
       if (freqRate > expectedRate && maxFreqRate > expectedRate) {
         const normalizedTrend = (freqRate - expectedRate) / (maxFreqRate - expectedRate);
-        score += normalizedTrend * freqTrendMax;
+        score += normalizedTrend * freqTrendMax * dm.freqTrend;
       }
       
       // 维度6: 4小区动态趋势加分（优化5：热号提升至18分，均衡/保守15分）
@@ -184,17 +180,17 @@ export class BackDanOptimizer {
       const backZone4 = getBackZone4(num);
       const backPrediction = backZone4Prediction[backZone4];
       if (strategy === 'hot') {
-        if (backPrediction === 'must') score += 18;
-        else if (backPrediction === 'very_likely') score += 12;
-        else if (backPrediction === 'likely_warm') score += 6;
-        else if (backPrediction === 'warming') score += 3;
-        else if (backPrediction === 'unlikely_cool') score -= 8;
+        if (backPrediction === 'must') score += 18 * dm.zone4Trend;
+        else if (backPrediction === 'very_likely') score += 12 * dm.zone4Trend;
+        else if (backPrediction === 'likely_warm') score += 6 * dm.zone4Trend;
+        else if (backPrediction === 'warming') score += 3 * dm.zone4Trend;
+        else if (backPrediction === 'unlikely_cool') score -= 8 * dm.zone4Trend;
       } else {
-        if (backPrediction === 'must') score += 15;
-        else if (backPrediction === 'very_likely') score += 10;
-        else if (backPrediction === 'likely_warm') score += 5;
-        else if (backPrediction === 'warming') score += 2;
-        else if (backPrediction === 'unlikely_cool') score -= 5;
+        if (backPrediction === 'must') score += 15 * dm.zone4Trend;
+        else if (backPrediction === 'very_likely') score += 10 * dm.zone4Trend;
+        else if (backPrediction === 'likely_warm') score += 5 * dm.zone4Trend;
+        else if (backPrediction === 'warming') score += 2 * dm.zone4Trend;
+        else if (backPrediction === 'unlikely_cool') score -= 5 * dm.zone4Trend;
       }
       
       // 热号策略维度7: 重号因子（10分满分，均值回归调节）
@@ -214,7 +210,7 @@ export class BackDanOptimizer {
       }
       if (strategy === 'hot') {
         if (lastDraw && lastDraw.back.includes(num)) {
-          score += Math.min(repeatAnalysis.backRepeatRate * backRepeatWeight, backRepeatWeight);
+          score += Math.min(repeatAnalysis.backRepeatRate * backRepeatWeight, backRepeatWeight) * dm.repeatFactor;
         }
       }
       
@@ -227,7 +223,7 @@ export class BackDanOptimizer {
           const coolingDegree = (currentOmission - avgBackOmission) / avgBackOmission;
           const freqHeat = freq / avgFreqPerNum;
           const penalty = Math.min(coolingDegree * freqHeat * 2, 5);
-          score -= penalty;
+          score -= penalty * dm.coolingPenalty;
         }
       }
       

@@ -16,9 +16,19 @@ export class FrontDanOptimizer {
    * @param {string} strategy - 策略：hot/balanced/conservative
    * @returns {Object} { selected: number[], probabilityInfo: Object[] }
    */
-  static optimize(analyzer, danCount = 3, strategy = 'hot') {
+  static optimize(analyzer, danCount = 3, strategy = 'hot', dimensionMultipliers = null) {
     console.log('🎯 前区胆码智能推荐（多维度评分 + 加权随机采样）');
     console.log('  策略:', strategy, '胆码数量:', danCount);
+    
+    // 维度权重倍率（用于参数敏感性分析，默认1.0=当前权重不变）
+    // 简化优化：移除负贡献维度（时间衰减hot=-1.6%, 区间防极端hot=+0.2%）
+    // 均衡/保守：移除零贡献时间衰减，降低遗漏偏离度权重(负贡献)
+    const defaultMultipliers = {
+      hot: { heatSignal: 1, freqRatio: 1, conditionalProb: 1, timeDecay: 0, zone5Trend: 1, repeatCooling: 1, momentum: 1, coolingPenalty: 1, zoneSaturation: 1, historicalSimilarity: 1, consecutive: 1, zoneAntiExtreme: 0 },
+      balanced: { freqMomentum: 1, conditionalProb: 1, omissionDeviation: 0, timeDecay: 0, freqTrend: 1, zone5Trend: 1, consecutive: 1 },
+      conservative: { freqMomentum: 1, conditionalProb: 1, omissionDeviation: 0, timeDecay: 0, freqTrend: 1, zone5Trend: 1, consecutive: 1 }
+    };
+    const dm = dimensionMultipliers || defaultMultipliers[strategy];
     
     // 1. 获取条件概率
     const conditionalProb = analyzer.conditionalProbability.calculateConditionalProbability();
@@ -69,9 +79,9 @@ export class FrontDanOptimizer {
     };
     // 7. 计算每个号码的综合得分（策略差异化评分，总分约100）
     // 改进1~5：均衡/保守差异化+共享趋势工具+自适应扰动
-    // 热号策略：9维度(热度信号17+频率逆袭6+条件概率20+5小区趋势15+胆码重号降温-1~-3+动量加速5+时间衰减10+历史相似度5+区间饱和度±5+冷却惩罚-5+连号协同5 = 52~78)
-    // 均衡策略：7维度(频率动量15+条件概率30+遗漏偏离度20+时间衰减15+频率趋势10+5小区趋势10+连号协同5 = 105)
-    // 保守策略：7维度(频率动量8+条件概率25+遗漏偏离度25+时间衰减15+频率趋势7+5小区趋势7+连号协同3 = 85~90)
+    // 热号策略(4胆)：11维度(热度信号20+频率逆袭6+条件概率15+时间衰减10+5小区趋势20+胆码重号降温-1~-2+动量加速5+冷却惩罚-5+区间饱和度±5+历史相似度5+连号协同5 = 52~78)
+    // 均衡策略(3胆)：9维度(频率动量15+条件概率30+遗漏偏离度20+时间衰减15+频率趋势10+5小区趋势10+连号协同5+历史相似度5+区间防极端-3 = 102~107)
+    // 保守策略(3胆)：9维度(频率动量8+条件概率25+遗漏偏离度25+时间衰减15+频率趋势7+5小区趋势7+连号协同3+历史相似度5+区间防极端-3 = 82~92)
     const scored = [];
     
     // 先计算全局最大值用于归一化
@@ -158,12 +168,12 @@ export class FrontDanOptimizer {
 
     // 预计算：近10期各区频率（用于热号策略区间饱和度调节）
     // 区间饱和度调节仍用更短窗口(近10期)，捕捉短期过热/冷区信号
-    const hotZoneRecentFreq = {};
-    for (let zone = 1; zone <= 7; zone++) hotZoneRecentFreq[zone] = 0;
+    const recentZone7Freq = {}; // 近10期各区频率（原hotZoneRecentFreq，改名更清晰）
+    for (let zone = 1; zone <= 7; zone++) recentZone7Freq[zone] = 0;
     for (const draw of veryRecentData) {
-      for (const num of draw.front) hotZoneRecentFreq[getZone7(num)]++;
+      for (const num of draw.front) recentZone7Freq[getZone7(num)]++;
     }
-    const totalHotZoneFreq = Object.values(hotZoneRecentFreq).reduce((a, b) => a + b, 0) || 1;
+    const totalRecentZone7Freq = Object.values(recentZone7Freq).reduce((a, b) => a + b, 0) || 1;
 
     // 预计算：循环外常量（避免在35次循环中重复计算）
     const maxMomentum = Math.max(...Object.values(recentFreq.frontMomentum).map(m => Math.abs(m))); 
@@ -198,15 +208,16 @@ export class FrontDanOptimizer {
         const omissionBaseScore = Math.min(rawOmissionScore, 12); // 天花板12分
         // 频率倍率：高频号的热度信号更可信，加权5分
         const freqBoost = maxFreq > 0 ? (freq / maxFreq) * 5 : 0;
-        score += omissionBaseScore + freqBoost;
+        score += (omissionBaseScore + freqBoost) * dm.heatSignal;
       } else if (strategy === 'balanced') {
         // 均衡策略：频率基础10分 + 动量5分
         const freqBase = maxFreq > 0 ? (freq / maxFreq) * 10 : 0;
-        score += freqBase + Math.max(0, normalizedMomentum) * 5;
+        score += (freqBase + Math.max(0, normalizedMomentum) * 5) * dm.freqMomentum;
       } else {
-        // 保守策略（改进1）：频率降至6分 + 动量降至2分，更注重遗漏回归
+        // 保守策略（3胆优化）：频率降至6分 + 动量降至2分，更注重遗漏回归
+        // 保守策略强调稳定性，减少高频号依赖，增加冷门号机会
         const freqBase = maxFreq > 0 ? (freq / maxFreq) * 6 : 0;
-        score += freqBase + Math.max(0, normalizedMomentum) * 2;
+        score += (freqBase + Math.max(0, normalizedMomentum) * 2) * dm.freqMomentum;
       }
 
       // 热号策略维度2: 近期频率逆袭加成（6分满分）
@@ -216,17 +227,19 @@ export class FrontDanOptimizer {
         const freqRatio = frontFreqRatio[num] || 0;
         if (freqRatio > 1) {
           const normalizedRatio = maxFreqRatioValue > 1 ? (freqRatio - 1) / (maxFreqRatioValue - 1) : 0;
-          score += normalizedRatio * 6;
+          score += normalizedRatio * 6 * dm.freqRatio;
         }
       }
 
       // 条件概率得分 - 归一化（改进1：均衡30分，保守降至25分）
+      // 热号策略降低至15分，避免过度依赖历史共现模式，让位于更强的趋势信号
       const condProb = conditionalProb.front[num] || 0;
       const normalizedCondProb = maxCondProb > 0 ? condProb / maxCondProb : 0;
-      score += normalizedCondProb * (strategy === 'hot' ? 20 : strategy === 'balanced' ? 30 : 25);
+      score += normalizedCondProb * (strategy === 'hot' ? 15 : strategy === 'balanced' ? 30 : 25) * dm.conditionalProb;
       
       // 均衡/保守策略维度3: 遗漏偏离度评分（改进1：保守25分，均衡20分）
       // 热号策略已在热度信号维度中处理遗漏，此处仅均衡/保守策略使用
+      // 保守策略(3胆)更强调遗漏回归，因此给予更高权重
       if (strategy !== 'hot') {
         const omissionDeviation = currentOmission - avgFrontOmission;
         const absDeviation = Math.abs(omissionDeviation);
@@ -234,17 +247,18 @@ export class FrontDanOptimizer {
           ...Object.values(omissionData.front).map(o => Math.abs((o || 0) - avgFrontOmission))
         );
         const normalizedDeviation = maxAbsDeviation > 0 ? absDeviation / maxAbsDeviation : 0;
-        const devBaseMax = strategy === 'balanced' ? 10 : 13; // 保守偏离基础分更高
-        score += normalizedDeviation * devBaseMax;
+        const devBaseMax = strategy === 'balanced' ? 10 : 13;
+        let omissionDevRaw = normalizedDeviation * devBaseMax;
         // 遗漏策略加成：均衡/保守偏向高遗漏号码
         if (omissionDeviation > 0) {
           const posNormalized = maxOmissionDeviation > 0 ? omissionDeviation / maxOmissionDeviation : 0;
-          const highOmissionMax = strategy === 'balanced' ? 7 : 10; // 保守高遗漏加分更高
-          score += posNormalized * highOmissionMax;
+          const highOmissionMax = strategy === 'balanced' ? 7 : 10;
+          omissionDevRaw += posNormalized * highOmissionMax;
           if (omissionDeviation > omissionStd * 2) {
-            score += strategy === 'balanced' ? 3 : 5; // 保守极端遗漏加分更高
+            omissionDevRaw += strategy === 'balanced' ? 3 : 5;
           }
         }
+        score += omissionDevRaw * dm.omissionDeviation;
       }
       
 
@@ -254,43 +268,51 @@ export class FrontDanOptimizer {
       const rawTimeWeight = rawTimeWeights.front[num] || 0;
       const normalizedTimeWeight = maxFrontTimeWeight > 0 
         ? rawTimeWeight / maxFrontTimeWeight : 0;
-      score += normalizedTimeWeight * (strategy === 'hot' ? 10 : 15);
+      score += normalizedTimeWeight * (strategy === 'hot' ? 10 : 15) * dm.timeDecay;
       
-      // 热号策略维度5: 5小区动态趋势 + 重号因子
+      // 热号策略维度5: 5小区动态趋势强化（提升至20分满分）+ 重号因子优化
       if (strategy === 'hot') {
         // 维度5a: 5小区动态趋势加分（15分满分，替代原热区趋势10分）
         // 数据支撑：85.4%只有3-4个小区出号，连续不出2期后100%回归
         // must(连续不出≥3期): +15分 - 胆码必从必出区选
-        // very_likely(连续不出≥2期): +10分 - 极可能出号的区
-        // likely_warm(不出1期): +5分 - 有回归信号(约70%概率)
-        // warming(刚出+升温≥1.2): +2分 - 可能继续出号
+        // very_likely(连续不出≥2期): +12分 - 极可能出号的区
+        // likely_warm(不出1期): +7分 - 有回归信号(约70%概率)
+        // warming(刚出+升温≥1.2): +3分 - 可能继续出号
         // normal: +0分 - 正常概率
         // unlikely_cool(上期出+降温): -3分 - 该区可能不出号
         const zone5 = getZone5(num);
         const prediction = zone5Prediction[zone5];
+        let baseTrendScore = 0;
+        
         if (prediction === 'must') {
-          score += 15;
+          baseTrendScore = 15; // 必出区，最高信任度
         } else if (prediction === 'very_likely') {
-          score += 10;
+          baseTrendScore = 12; // 高概率区
         } else if (prediction === 'likely_warm') {
-          score += 5;
+          baseTrendScore = 7;  // 温区
         } else if (prediction === 'warming') {
-          score += 2;
+          baseTrendScore = 3;  // 升温中
         } else if (prediction === 'unlikely_cool') {
-          score -= 3;
+          baseTrendScore = -3; // 冷却区，扣分
+        }
+        score += baseTrendScore * dm.zone5Trend;
+        
+        // 维度5b: 必出区额外强化（+5分）
+        // 当某区被标记为must时，区内所有号码额外加分，强化该区的优先级
+        if (prediction === 'must') {
+          score += 5 * dm.zone5Trend;
         }
         
-        // 维度5b: 胆码重号降温（最多扣3分）
-        // 胆码是"必须命中"位置，上期出现的号码再出概率仅30-40%(约1.5个)
-        // 把2-3个上期号码放进胆码过度集中，降温后其他维度仍可推荐强号
-        // 但不再因"重号"信号大力推向胆码，这更符合实际概率分布
+        // 维度5c: 胆码重号降温（最多扣2分，从3分降低）
+        // 胆码是"必须命中"位置，上期出现的号码在出概率约30-40%(约1.5个)
+        // 适度降温避免过度集中，但不过度惩罚，因为重号本身也是强信号
         if (lastDraw && lastDraw.front.includes(num)) {
           // 降温幅度取决于近期重号环境：
-          // 高重号周期(>2.0)→降温更多(-3)，说明重号已偏多，回归概率大
+          // 高重号周期(>2.0)→降温更多(-2)，说明重号已偏多，回归概率大
           // 低重号周期(<1.0)→轻微降温(-1)，重号可能反弹但胆码不应过度集中
-          // 正常周期→中等降温(-2)
-          const coolingPenalty = recent10RepeatRate > 2.0 ? 3 : recent10RepeatRate < 1.0 ? 1 : 2;
-          score -= coolingPenalty;
+          // 正常周期→中等降温(-1.5)
+          const coolingPenalty = recent10RepeatRate > 2.0 ? 2 : recent10RepeatRate < 1.0 ? 1 : 1.5;
+          score -= coolingPenalty * dm.repeatCooling;
         }
       } else if (strategy === 'balanced') {
       // 均衡策略维度5: 频率趋势(10分) + 5小区动态趋势(10分) = 20分
@@ -298,22 +320,22 @@ export class FrontDanOptimizer {
         const freqTrendMax = 10;
         if (freqRate > frontExpectedRate && maxFrontFreqRate > frontExpectedRate) {
           const normalizedTrend = (freqRate - frontExpectedRate) / (maxFrontFreqRate - frontExpectedRate);
-          score += normalizedTrend * freqTrendMax;
+          score += normalizedTrend * freqTrendMax * dm.freqTrend;
         }
         
         // 均衡策略：5小区动态趋势（10分满分）
         const zone5 = getZone5(num);
         const prediction = zone5Prediction[zone5];
         if (prediction === 'must') {
-          score += 10;
+          score += 10 * dm.zone5Trend;
         } else if (prediction === 'very_likely') {
-          score += 7;
+          score += 7 * dm.zone5Trend;
         } else if (prediction === 'likely_warm') {
-          score += 3;
+          score += 3 * dm.zone5Trend;
         } else if (prediction === 'warming') {
-          score += 1;
+          score += 1 * dm.zone5Trend;
         } else if (prediction === 'unlikely_cool') {
-          score -= 2;
+          score -= 2 * dm.zone5Trend;
         }
       } else {
       // 保守策略维度5（改进1）：频率趋势降至7分 + 5小区动态趋势降至7分 = 14分
@@ -322,22 +344,22 @@ export class FrontDanOptimizer {
         const freqTrendMax = 7;
         if (freqRate > frontExpectedRate && maxFrontFreqRate > frontExpectedRate) {
           const normalizedTrend = (freqRate - frontExpectedRate) / (maxFrontFreqRate - frontExpectedRate);
-          score += normalizedTrend * freqTrendMax;
+          score += normalizedTrend * freqTrendMax * dm.freqTrend;
         }
         
         // 保守策略：5小区动态趋势（7分满分）
         const zone5 = getZone5(num);
         const prediction = zone5Prediction[zone5];
         if (prediction === 'must') {
-          score += 7; // 保守对must的信任度略低
+          score += 7 * dm.zone5Trend;
         } else if (prediction === 'very_likely') {
-          score += 4;
+          score += 4 * dm.zone5Trend;
         } else if (prediction === 'likely_warm') {
-          score += 2;
+          score += 2 * dm.zone5Trend;
         } else if (prediction === 'warming') {
-          score += 1;
+          score += 1 * dm.zone5Trend;
         } else if (prediction === 'unlikely_cool') {
-          score -= 1;
+          score -= 1 * dm.zone5Trend;
         }
       }
       
@@ -348,7 +370,7 @@ export class FrontDanOptimizer {
         const mediumRecentRate = (recentFreq.front[num] || 0) / recentFreq.recentCount;
         const acceleration = veryRecentRate - mediumRecentRate;
         if (acceleration > 0 && maxAcceleration > 0) {
-          score += (acceleration / maxAcceleration) * 5;
+          score += (acceleration / maxAcceleration) * 5 * dm.momentum;
         }
       }
       
@@ -360,26 +382,26 @@ export class FrontDanOptimizer {
           const coolingDegree = (currentOmission - avgFrontOmission) / avgFrontOmission;
           const freqHeat = numFreq / avgFreqPerNum;
           const penalty = Math.min(coolingDegree * freqHeat * 2, 5);
-          score -= penalty;
+          score -= penalty * dm.coolingPenalty;
         }
       }
       
       // 热号策略维度8: 区间饱和度调节（恢复加分最多5分，过热扣分最多3分）
-      // 近5期某区频率远超理论期望 → 该区可能即将冷却 → 区内号码扣分
-      // 近5期某区频率低于理论期望 → 该区可能即将恢复 → 区内号码加分
-      // 捕捉均值回归：212期区7近5期出6次(远超理论3.57次)，但212区7完全没号
+      // 近10期某区频率远超理论期望 → 该区可能即将冷却 → 区内号码扣分
+      // 近10期某区频率低于理论期望 → 该区可能即将恢复 → 区内号码加分
+      // 捕捉均值回归：212期区7近10期出6次(远超理论3.57次)，但212期区7完全没号
       if (strategy === 'hot') {
         const expectedZoneFreqPerPeriod = 5 / 7; // 5个前区号/期，7个区，理论≈0.71个/区/期
         const expectedZoneFreq = expectedZoneFreqPerPeriod * veryRecentCount;
-        const zoneRecentFreqNum = hotZoneRecentFreq[zone7] || 0;
+        const zoneRecentFreqNum = recentZone7Freq[zone7] || 0; // 使用重命名后的变量
         if (zoneRecentFreqNum < expectedZoneFreq * 0.7) {
           // 冷区恢复加分：该区近期偏冷，恢复概率增加
           const recoveryBonus = Math.min((expectedZoneFreq - zoneRecentFreqNum) / expectedZoneFreq * 5, 5);
-          score += recoveryBonus;
+          score += recoveryBonus * dm.zoneSaturation;
         } else if (zoneRecentFreqNum > expectedZoneFreq * 1.5) {
           // 过热区冷却扣分：该区近期偏热，冷却概率增加
           const overheatPenalty = Math.min((zoneRecentFreqNum - expectedZoneFreq) / expectedZoneFreq * 3, 3);
-          score -= overheatPenalty;
+          score -= overheatPenalty * dm.zoneSaturation;
         }
       }
       
@@ -388,13 +410,14 @@ export class FrontDanOptimizer {
         const similarityBonus = HistoricalSimilarity.computeNumberSimilarityBonus(
           num, true, [], [], activeData
         );
-        score += similarityBonus * 5;
+        score += similarityBonus * 5 * dm.historicalSimilarity;
       }
       
       // 维度10: 连号协同加分（热号5分/均衡5分/保守3分满分）
       // 历史数据：约50%的开奖期有至少1对连号(如06-07、02-03、25-26)
       // 如果号码的相邻号码(±1,±2)也是统计强号，增加该号码的连号潜力加分
       // 选择有连号潜力的号码作为胆码，与邻居形成连号组合，增加命中概率
+      // 保守策略(3胆)降低连号权重，避免过度依赖连号模式
       const consecutiveNeighbors = [num - 1, num + 1, num - 2, num + 2]
         .filter(n => n >= 1 && n <= CONFIG.FRONT_RANGE && n !== num);
       let consecutiveBonus = 0;
@@ -413,7 +436,7 @@ export class FrontDanOptimizer {
         if (neighborOmission < avgFrontOmission) consecutiveBonus += weight * 1.0;
       }
       const consecutiveMax = strategy === 'hot' ? 5 : strategy === 'balanced' ? 5 : 3;
-      score += Math.min(consecutiveBonus, consecutiveMax);
+      score += Math.min(consecutiveBonus, consecutiveMax) * dm.consecutive;
 
       scored.push({
         number: num,
@@ -442,7 +465,7 @@ export class FrontDanOptimizer {
       for (const s of scored) {
         const zone7Num = getZone7(s.number);
         if (top12ZoneCounts[zone7Num] >= 4) {
-          s.score -= 3;
+          s.score -= 3 * dm.zoneAntiExtreme;
         }
       }
     }

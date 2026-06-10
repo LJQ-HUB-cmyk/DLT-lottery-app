@@ -10,6 +10,8 @@ import AuthGuard from './components/AuthGuard';
 import DataVisualization from './components/DataVisualization';
 import ShuangSeQiuPage from './components/ShuangSeQiuPage';
 import ZoneAnalysisPanel from './components/ZoneAnalysisPanel';
+import LotteryBlackboard from './components/LotteryBlackboard';
+import './components/LotteryBlackboard.css';
 import './App.css';
 
 // 隐藏页面进入机制：连续点击标题7次（3秒内）可进入福彩双色球玩法页面
@@ -237,6 +239,7 @@ function App() {
   const [copyDanTuoSuccess, setCopyDanTuoSuccess] = useState(false); // 复制成功状态
   const [modelRecommendations, setModelRecommendations] = useState(null); // 辅助模型推荐结果
   const [showSSQPage, setShowSSQPage] = useState(false); // 是否显示福彩双色球玩法页面
+    const [showBlackboard, setShowBlackboard] = useState(false); // 是否显示号码分布黑板
 
   // 检查 URL hash 是否为 #ssq，用于隐藏页面直接访问
   useEffect(() => {
@@ -1175,6 +1178,18 @@ function App() {
     trackSave();
   };
 
+  // 如果显示号码分布黑板，则直接渲染该页面
+  if (showBlackboard) {
+    return (
+      <AuthGuard>
+        <LotteryBlackboard 
+          historyData={analyzer.historyData} 
+          onBack={() => setShowBlackboard(false)} 
+        />
+      </AuthGuard>
+    );
+  }
+  
   // 如果显示福彩双色球玩法页面，则直接渲染该页面
   if (showSSQPage) {
     return (
@@ -1281,7 +1296,25 @@ function App() {
           const latestDraw = getLatestDrawFromData();
           return latestDraw && (
             <section className="card latest-draw-card">
-              <h2>🎯 最新一期开奖</h2>
+              <h2>🎯 最新一期开奖
+                <button 
+                  onClick={() => setShowBlackboard(true)}
+                  style={{
+                    marginLeft: '8px',
+                    padding: '2px 8px',
+                    fontSize: '0.75em',
+                    background: 'linear-gradient(135deg, #1a3a2a, #2d5a3d)',
+                    color: '#f0e68c',
+                    border: '1px solid #f0e68c',
+                    borderRadius: '4px',
+                    cursor: 'pointer',
+                    fontWeight: 'bold',
+                    letterSpacing: '1px'
+                  }}
+                >
+                  📋 小黑板
+                </button>
+              </h2>
               <div className="latest-draw-content">
                 <div className="draw-info">
                   <span className="draw-period">最新一期</span>

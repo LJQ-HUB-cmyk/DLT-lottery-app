@@ -180,9 +180,11 @@ function LotteryBlackboard({ historyData, onBack }) {
   }
 
   const totalPeriods = historyData.length;
+  // 判断是否选择了全部期数
+  const isAllPeriods = periodCount === totalPeriods;
   // 期数选项
   const periodOptions = [5, 10, 20, 30, 50, 80, 100].filter(n => n <= totalPeriods);
-  if (!periodOptions.includes(periodCount) && periodOptions.length > 0) {
+  if (!periodOptions.includes(periodCount) && periodCount !== totalPeriods && periodOptions.length > 0) {
     setPeriodCount(periodOptions[periodOptions.length - 1]);
   }
 
@@ -199,7 +201,7 @@ function LotteryBlackboard({ historyData, onBack }) {
           <div className="bb-toolbar-center">
             <span className="bb-title">📋 号码分布黑板</span>
             <span className="bb-subtitle">
-              最近 {periodCount} 期 · 共 {totalPeriods} 期数据
+              {isAllPeriods ? `全部 · ${totalPeriods}期数据` : `最近 ${periodCount} 期 · 共 ${totalPeriods} 期数据`}
             </span>
           </div>
           <div className="bb-toolbar-right">
@@ -238,12 +240,13 @@ function LotteryBlackboard({ historyData, onBack }) {
                   {n}期
                 </button>
               ))}
-              {totalPeriods > 100 && (
+              {/* 全部期数按钮，始终可见 */}
+              {totalPeriods > periodOptions[periodOptions.length - 1] && (
                 <button 
-                  className={`bb-period-btn ${periodCount === totalPeriods ? 'active' : ''}`}
+                  className={`bb-period-btn ${isAllPeriods ? 'active' : ''}`}
                   onClick={() => setPeriodCount(totalPeriods)}
                 >
-                  全部
+                  全部({totalPeriods}期)
                 </button>
               )}
             </div>
@@ -431,7 +434,7 @@ function LotteryBlackboard({ historyData, onBack }) {
           <div className="bb-trend-mode">
             <div className="bb-section">
               <div className="bb-section-header">
-                <span className="bb-section-title">前区号码走势（最近{periodCount}期）</span>
+                <span className="bb-section-title">前区号码走势（{isAllPeriods ? '全部' : `最近${periodCount}期`}）</span>
                 <span className="bb-section-hint">数字 = 当期出现号码</span>
               </div>
               <div className="bb-trend-table">
@@ -476,7 +479,7 @@ function LotteryBlackboard({ historyData, onBack }) {
             {/* 后区走势 */}
             <div className="bb-section">
               <div className="bb-section-header">
-                <span className="bb-section-title">后区号码走势（最近{periodCount}期）</span>
+                <span className="bb-section-title">后区号码走势（{isAllPeriods ? '全部' : `最近${periodCount}期`}）</span>
                 <span className="bb-section-hint">数字 = 当期出现号码</span>
               </div>
               <div className="bb-trend-table bb-back-trend">
@@ -529,7 +532,7 @@ function LotteryBlackboard({ historyData, onBack }) {
         <div className="bb-footer">
           <span>前区均值出现: {(Object.values(frontFreq).reduce((a,b) => a+b, 0) / 35).toFixed(1)}次/号</span>
           <span>后区均值出现: {(Object.values(backFreq).reduce((a,b) => a+b, 0) / 12).toFixed(1)}次/号</span>
-          <span>数据范围: 最近{periodCount}期</span>
+          <span>数据范围: {isAllPeriods ? '全部' : `最近${periodCount}期`}</span>
         </div>
       </div>
     </div>

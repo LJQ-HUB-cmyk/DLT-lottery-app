@@ -41,38 +41,59 @@ export class BaseModel {
   }
 
   /**
-   * 智能前区采样（通用方法）
+   * 智能前区采样（通用方法）—— 奇偶概率分布采样
+   * 按历史奇偶比概率分布采样目标奇数数量，覆盖2:3/3:2(主要)和1:4/4:1(次要)
+   * 仅排除极端的0:5和5:0（历史占比<3%）
+   * 在每个奇偶池内仍按权重加权选择，兼顾评分逻辑与统计约束
    * @param {Object} weights - 权重对象 {号码: 权重}
    * @param {number} count - 选择数量
    * @returns {number[]} 选中的号码数组
    */
   smartFrontSample(weights, count) {
-    const numbers = Object.keys(weights).map(Number);
-    const weightValues = Object.values(weights);
-    
-    // 加权随机选择（无放回）
-    const selected = [];
-    const remaining = [...numbers];
-    const remainingWeights = [...weightValues];
-    
-    for (let i = 0; i < count && remaining.length > 0; i++) {
-      const totalWeight = remainingWeights.reduce((sum, w) => sum + w, 0);
-      if (totalWeight === 0) break;
-      
-      let random = Math.random() * totalWeight;
-      let cumulative = 0;
-      
-      for (let j = 0; j < remaining.length; j++) {
-        cumulative += remainingWeights[j];
-        if (random <= cumulative) {
-          selected.push(remaining[j]);
-          remaining.splice(j, 1);
-          remainingWeights.splice(j, 1);
-          break;
-        }
-      }
+    // ===== 奇偶概率分布采样 =====
+    // 历史分布（最近30期大乐透）：2:3=33%, 3:2=33%, 1:4=13%, 4:1=17%, 0:5=3%
+    // 按概率加权选择目标奇数数量，覆盖4:1和1:4但不覆盖0:5/5:0
+    const oddTargetDistribution = []; // 累积概率表
+    for (let odd = 1; odd <= count - 1; odd++) { // 排除0和count（0:5和5:0极端）
+      // 偏离理想中心的距离越小，概率越高
+      const idealCenter = count / 2; // 2.5 for count=5
+      const distance = Math.abs(odd - idealCenter);
+      // 概率权重：中心最高，向两边递减
+      const weight = distance === 0.5 ? 33 : distance === 1 ? 20 : distance === 1.5 ? 10 : distance === 2 ? 5 : 1;
+      for (let w = 0; w < weight; w++) oddTargetDistribution.push(odd);
     }
-    
+    const targetOddCount = oddTargetDistribution[Math.floor(Math.random() * oddTargetDistribution.length)];
+
+    // 分离奇偶号码池及对应权重
+    const allNumbers = Object.keys(weights).map(Number);
+    const oddPool = allNumbers.filter(n => n % 2 !== 0);
+    const evenPool = allNumbers.filter(n => n % 2 === 0);
+    const oddWeights = oddPool.map(n => weights[n] || 0);
+    const evenWeights = evenPool.map(n => weights[n] || 0);
+
+    // 从奇数池加权采样
+    const oddPickCount = Math.min(targetOddCount, oddPool.length);
+    const oddSelected = oddPickCount > 0
+      ? this.weightedSampleNoReplacement(oddPool, oddWeights, oddPickCount)
+      : [];
+
+    // 从偶数池加权采样剩余数量
+    const evenPickCount = Math.min(count - oddSelected.length, evenPool.length);
+    const evenSelected = evenPickCount > 0
+      ? this.weightedSampleNoReplacement(evenPool, evenWeights, evenPickCount)
+      : [];
+
+    let selected = [...oddSelected, ...evenSelected];
+
+    // 兜底：如果分层采样数量不足（极端边界情况），用全池加权采样补充
+    if (selected.length < count) {
+      const remainingPool = allNumbers.filter(n => !selected.includes(n));
+      const remainingWeights = remainingPool.map(n => weights[n] || 0);
+      const remainingCount = Math.min(count - selected.length, remainingPool.length);
+      const remainingSelected = this.weightedSampleNoReplacement(remainingPool, remainingWeights, remainingCount);
+      selected = [...selected, ...remainingSelected];
+    }
+
     return selected.sort((a, b) => a - b);
   }
 
@@ -162,7 +183,8 @@ export class BaseModel {
   }
 
   /**
-   * 强制区间覆盖
+   * 强制区间覆盖（保持奇偶比不变）
+   * 替换号码时优先选择同奇偶的候选，避免修复区间覆盖时破坏奇偶平衡
    * @param {number[]} front - 前区号码
    * @param {number} minZones - 最少区间数
    * @returns {number[]} 修正后的号码
@@ -194,9 +216,57 @@ export class BaseModel {
   
       const replacement = zoneNumbers.filter(n => !frontCopy.includes(n) && n <= CONFIG.FRONT_RANGE);
       if (replacement.length > 0) {
-        frontCopy[removeIdx] = replacement[Math.floor(Math.random() * replacement.length)];
+        // 保持奇偶比：优先选择与被替换号码同奇偶的候选
+        const removedParity = frontCopy[removeIdx] % 2 !== 0; // true=奇数, false=偶数
+        const sameParityReplacements = replacement.filter(n => (n % 2 !== 0) === removedParity);
+        const finalCandidates = sameParityReplacements.length > 0 ? sameParityReplacements : replacement;
+        frontCopy[removeIdx] = finalCandidates[Math.floor(Math.random() * finalCandidates.length)];
         frontZones.add(targetZone);
         uncoveredZones.splice(uncoveredZones.indexOf(targetZone), 1);
+      }
+    }
+  
+    return frontCopy.sort((a, b) => a - b);
+  }
+  
+  /**
+   * 强制奇偶比约束
+   * 确保前区号码不出现0:5或5:0极端比例，允许1:4和4:1
+   * 用于不使用smartFrontSample的算法（如BalancedStrategy、ZoneFrequency）的后处理
+   * @param {number[]} front - 前区号码数组
+   * @param {number[]} allNumbers - 全量号码池（默认1~FRONT_RANGE）
+   * @returns {number[]} 修正后的号码数组
+   */
+  enforceParityRatio(front, allNumbers = null) {
+    if (!allNumbers) {
+      allNumbers = Array.from({ length: CONFIG.FRONT_RANGE }, (_, i) => i + 1);
+    }
+  
+    const oddCount = front.filter(n => n % 2 !== 0).length;
+    const count = front.length;
+  
+    // 允许1:4和4:1，仅排除0:5和5:0极端比例
+    if (oddCount >= 1 && oddCount <= count - 1) return [...front];
+  
+    const frontCopy = [...front];
+  
+    // 全偶(0:5)：需要添加至少1个奇数
+    if (oddCount === 0) {
+      const oddCandidates = allNumbers.filter(n => n % 2 !== 0 && !frontCopy.includes(n));
+      const evenInFront = frontCopy.filter(n => n % 2 === 0);
+      if (oddCandidates.length > 0 && evenInFront.length > 0) {
+        const replaceIdx = frontCopy.indexOf(evenInFront[Math.floor(Math.random() * evenInFront.length)]);
+        frontCopy[replaceIdx] = oddCandidates[Math.floor(Math.random() * oddCandidates.length)];
+      }
+    }
+  
+    // 全奇(5:0)：需要添加至少1个偶数
+    if (oddCount === count) {
+      const evenCandidates = allNumbers.filter(n => n % 2 === 0 && !frontCopy.includes(n));
+      const oddInFront = frontCopy.filter(n => n % 2 !== 0);
+      if (evenCandidates.length > 0 && oddInFront.length > 0) {
+        const replaceIdx = frontCopy.indexOf(oddInFront[Math.floor(Math.random() * oddInFront.length)]);
+        frontCopy[replaceIdx] = evenCandidates[Math.floor(Math.random() * evenCandidates.length)];
       }
     }
   

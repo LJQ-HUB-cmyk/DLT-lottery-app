@@ -1,0 +1,344 @@
+{
+  "strategy": "hot",
+  "totalPeriods": 214,
+  "repeatCount": 5,
+  "frontBaseline": {
+    "avgHits": 0.6182926829268293,
+    "hitRate": 0.525609756097561,
+    "validPeriods": 164,
+    "totalSamples": 820
+  },
+  "backBaseline": {
+    "avgHits": 0.14634146341463414,
+    "hitRate": 0.14634146341463414,
+    "validPeriods": 164,
+    "totalSamples": 820
+  },
+  "frontAblationResults": [
+    {
+      "key": "coolingPenalty",
+      "label": "冷却惩罚",
+      "weight": "-5分",
+      "baselineRate": 52.5609756097561,
+      "ablationRate": 48.41463414634146,
+      "deltaRate": 4.146341463414638,
+      "baselineAvg": 0.6182926829268293,
+      "ablationAvg": 0.6195121951219512,
+      "deltaAvg": -0.0012195121951219523,
+      "contribution": 4.146341463414638
+    },
+    {
+      "key": "zoneSaturation",
+      "label": "区间饱和度调节",
+      "weight": "±5分",
+      "baselineRate": 52.5609756097561,
+      "ablationRate": 49.26829268292683,
+      "deltaRate": 3.292682926829271,
+      "baselineAvg": 0.6182926829268293,
+      "ablationAvg": 0.5804878048780487,
+      "deltaAvg": 0.03780487804878052,
+      "contribution": 3.292682926829271
+    },
+    {
+      "key": "zone5Trend",
+      "label": "5小区趋势+必出区强化",
+      "weight": "~20分",
+      "baselineRate": 52.5609756097561,
+      "ablationRate": 49.63414634146341,
+      "deltaRate": 2.9268292682926855,
+      "baselineAvg": 0.6182926829268293,
+      "ablationAvg": 0.625609756097561,
+      "deltaAvg": -0.007317073170731714,
+      "contribution": 2.9268292682926855
+    },
+    {
+      "key": "consecutive",
+      "label": "连号协同",
+      "weight": "5分",
+      "baselineRate": 52.5609756097561,
+      "ablationRate": 49.8780487804878,
+      "deltaRate": 2.682926829268295,
+      "baselineAvg": 0.6182926829268293,
+      "ablationAvg": 0.6146341463414634,
+      "deltaAvg": 0.003658536585365857,
+      "contribution": 2.682926829268295
+    },
+    {
+      "key": "momentum",
+      "label": "动量加速",
+      "weight": "5分",
+      "baselineRate": 52.5609756097561,
+      "ablationRate": 50.609756097560975,
+      "deltaRate": 1.9512195121951237,
+      "baselineAvg": 0.6182926829268293,
+      "ablationAvg": 0.624390243902439,
+      "deltaAvg": -0.0060975609756097615,
+      "contribution": 1.9512195121951237
+    },
+    {
+      "key": "freqRatio",
+      "label": "近期频率逆袭",
+      "weight": "6分",
+      "baselineRate": 52.5609756097561,
+      "ablationRate": 50.853658536585364,
+      "deltaRate": 1.7073170731707332,
+      "baselineAvg": 0.6182926829268293,
+      "ablationAvg": 0.6329268292682927,
+      "deltaAvg": -0.014634146341463428,
+      "contribution": 1.7073170731707332
+    },
+    {
+      "key": "repeatCooling",
+      "label": "胆码重号降温",
+      "weight": "-1~-2分",
+      "baselineRate": 52.5609756097561,
+      "ablationRate": 51.21951219512195,
+      "deltaRate": 1.3414634146341475,
+      "baselineAvg": 0.6182926829268293,
+      "ablationAvg": 0.6097560975609756,
+      "deltaAvg": 0.008536585365853666,
+      "contribution": 1.3414634146341475
+    },
+    {
+      "key": "historicalSimilarity",
+      "label": "历史形态相似度",
+      "weight": "5分",
+      "baselineRate": 52.5609756097561,
+      "ablationRate": 51.21951219512195,
+      "deltaRate": 1.3414634146341475,
+      "baselineAvg": 0.6182926829268293,
+      "ablationAvg": 0.6146341463414634,
+      "deltaAvg": 0.003658536585365857,
+      "contribution": 1.3414634146341475
+    },
+    {
+      "key": "conditionalProb",
+      "label": "条件概率",
+      "weight": "15分",
+      "baselineRate": 52.5609756097561,
+      "ablationRate": 52.07317073170732,
+      "deltaRate": 0.4878048780487809,
+      "baselineAvg": 0.6182926829268293,
+      "ablationAvg": 0.6414634146341464,
+      "deltaAvg": -0.023170731707317094,
+      "contribution": 0.4878048780487809
+    },
+    {
+      "key": "zoneAntiExtreme",
+      "label": "区间防极端",
+      "weight": "-3分",
+      "baselineRate": 52.5609756097561,
+      "ablationRate": 52.31707317073171,
+      "deltaRate": 0.24390243902439046,
+      "baselineAvg": 0.6182926829268293,
+      "ablationAvg": 0.6365853658536585,
+      "deltaAvg": -0.018292682926829285,
+      "contribution": 0.24390243902439046
+    },
+    {
+      "key": "heatSignal",
+      "label": "热度信号(遗漏+频率)",
+      "weight": "~20分",
+      "baselineRate": 52.5609756097561,
+      "ablationRate": 53.29268292682927,
+      "deltaRate": -0.7317073170731714,
+      "baselineAvg": 0.6182926829268293,
+      "ablationAvg": 0.6658536585365854,
+      "deltaAvg": -0.04756097560975614,
+      "contribution": -0.7317073170731714
+    },
+    {
+      "key": "timeDecay",
+      "label": "时间衰减",
+      "weight": "10分",
+      "baselineRate": 52.5609756097561,
+      "ablationRate": 54.146341463414636,
+      "deltaRate": -1.585365853658538,
+      "baselineAvg": 0.6182926829268293,
+      "ablationAvg": 0.6719512195121952,
+      "deltaAvg": -0.0536585365853659,
+      "contribution": -1.585365853658538
+    }
+  ],
+  "backAblationResults": [
+    {
+      "key": "conditionalProb",
+      "label": "条件概率",
+      "weight": "15分",
+      "baselineRate": 14.634146341463413,
+      "ablationRate": 14.02439024390244,
+      "deltaRate": 0.6097560975609734,
+      "contribution": 0.6097560975609734
+    },
+    {
+      "key": "coolingPenalty",
+      "label": "冷却惩罚",
+      "weight": "-5分",
+      "baselineRate": 14.634146341463413,
+      "ablationRate": 14.02439024390244,
+      "deltaRate": 0.6097560975609734,
+      "contribution": 0.6097560975609734
+    },
+    {
+      "key": "omissionDeviation",
+      "label": "遗漏偏离度",
+      "weight": "20分",
+      "baselineRate": 14.634146341463413,
+      "ablationRate": 14.634146341463413,
+      "deltaRate": 0,
+      "contribution": 0
+    },
+    {
+      "key": "timeDecay",
+      "label": "时间衰减",
+      "weight": "10分",
+      "baselineRate": 14.634146341463413,
+      "ablationRate": 15.24390243902439,
+      "deltaRate": -0.6097560975609762,
+      "contribution": -0.6097560975609762
+    },
+    {
+      "key": "repeatFactor",
+      "label": "重号因子",
+      "weight": "10分",
+      "baselineRate": 14.634146341463413,
+      "ablationRate": 15.24390243902439,
+      "deltaRate": -0.6097560975609762,
+      "contribution": -0.6097560975609762
+    },
+    {
+      "key": "zone4Trend",
+      "label": "4小区动态趋势",
+      "weight": "18分",
+      "baselineRate": 14.634146341463413,
+      "ablationRate": 15.853658536585366,
+      "deltaRate": -1.2195121951219523,
+      "contribution": -1.2195121951219523
+    },
+    {
+      "key": "freqTrend",
+      "label": "频率趋势",
+      "weight": "10分",
+      "baselineRate": 14.634146341463413,
+      "ablationRate": 16.463414634146343,
+      "deltaRate": -1.8292682926829285,
+      "contribution": -1.8292682926829285
+    },
+    {
+      "key": "freqMomentum",
+      "label": "频率+动量+恒热",
+      "weight": "15分",
+      "baselineRate": 14.634146341463413,
+      "ablationRate": 18.902439024390244,
+      "deltaRate": -4.26829268292683,
+      "contribution": -4.26829268292683
+    }
+  ],
+  "frontDimensionDefs": [
+    {
+      "key": "heatSignal",
+      "label": "热度信号(遗漏+频率)",
+      "weight": "~20分"
+    },
+    {
+      "key": "freqRatio",
+      "label": "近期频率逆袭",
+      "weight": "6分"
+    },
+    {
+      "key": "conditionalProb",
+      "label": "条件概率",
+      "weight": "15分"
+    },
+    {
+      "key": "timeDecay",
+      "label": "时间衰减",
+      "weight": "10分"
+    },
+    {
+      "key": "zone5Trend",
+      "label": "5小区趋势+必出区强化",
+      "weight": "~20分"
+    },
+    {
+      "key": "repeatCooling",
+      "label": "胆码重号降温",
+      "weight": "-1~-2分"
+    },
+    {
+      "key": "momentum",
+      "label": "动量加速",
+      "weight": "5分"
+    },
+    {
+      "key": "coolingPenalty",
+      "label": "冷却惩罚",
+      "weight": "-5分"
+    },
+    {
+      "key": "zoneSaturation",
+      "label": "区间饱和度调节",
+      "weight": "±5分"
+    },
+    {
+      "key": "historicalSimilarity",
+      "label": "历史形态相似度",
+      "weight": "5分"
+    },
+    {
+      "key": "consecutive",
+      "label": "连号协同",
+      "weight": "5分"
+    },
+    {
+      "key": "zoneAntiExtreme",
+      "label": "区间防极端",
+      "weight": "-3分"
+    }
+  ],
+  "backDimensionDefs": [
+    {
+      "key": "conditionalProb",
+      "label": "条件概率",
+      "weight": "15分"
+    },
+    {
+      "key": "omissionDeviation",
+      "label": "遗漏偏离度",
+      "weight": "20分"
+    },
+    {
+      "key": "freqMomentum",
+      "label": "频率+动量+恒热",
+      "weight": "15分"
+    },
+    {
+      "key": "timeDecay",
+      "label": "时间衰减",
+      "weight": "10分"
+    },
+    {
+      "key": "freqTrend",
+      "label": "频率趋势",
+      "weight": "10分"
+    },
+    {
+      "key": "zone4Trend",
+      "label": "4小区动态趋势",
+      "weight": "18分"
+    },
+    {
+      "key": "repeatFactor",
+      "label": "重号因子",
+      "weight": "10分"
+    },
+    {
+      "key": "coolingPenalty",
+      "label": "冷却惩罚",
+      "weight": "-5分"
+    }
+  ],
+  "meta": {
+    "timestamp": "2026-06-10T15:38:57.954Z"
+  }
+}

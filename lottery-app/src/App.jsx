@@ -9,6 +9,9 @@ import { trackNumberGeneration, trackCopy, trackSave, trackDataUpdate, trackMode
 import AuthGuard from './components/AuthGuard';
 import DataVisualization from './components/DataVisualization';
 import ShuangSeQiuPage from './components/ShuangSeQiuPage';
+import ZoneAnalysisPanel from './components/ZoneAnalysisPanel';
+import LotteryBlackboard from './components/LotteryBlackboard';
+import './components/LotteryBlackboard.css';
 import './App.css';
 
 // 隐藏页面进入机制：连续点击标题7次（3秒内）可进入福彩双色球玩法页面
@@ -236,6 +239,7 @@ function App() {
   const [copyDanTuoSuccess, setCopyDanTuoSuccess] = useState(false); // 复制成功状态
   const [modelRecommendations, setModelRecommendations] = useState(null); // 辅助模型推荐结果
   const [showSSQPage, setShowSSQPage] = useState(false); // 是否显示福彩双色球玩法页面
+    const [showBlackboard, setShowBlackboard] = useState(false); // 是否显示号码分布黑板
 
   // 检查 URL hash 是否为 #ssq，用于隐藏页面直接访问
   useEffect(() => {
@@ -1103,7 +1107,11 @@ function App() {
         const backStr = p.back.map(n => n.toString().padStart(2, '0')).join(' ');
         const frontSum = p.front.reduce((a, b) => a + b, 0);
         const backSum = p.back.reduce((a, b) => a + b, 0);
-        text += `第${idx + 1}组: ${frontStr} | ${backStr} (前区和值:${frontSum}, 后区和值:${backSum})\n`;
+        const oddCount = p.front.filter(n => n % 2 !== 0).length;
+        const evenCount = p.front.length - oddCount;
+        // 三级标记：2:3/3:2✓ / 1:4/4:1无标记 / 0:5/5:0⚠
+        const oddEvenMark = (oddCount >= 2 && oddCount <= 3) ? '✓' : (oddCount === 0 || oddCount === p.front.length) ? '⚠' : '';
+        text += `第${idx + 1}组: ${frontStr} | ${backStr} (和值:${frontSum}/${backSum}, 奇偶:${oddCount}:${evenCount}${oddEvenMark})\n`;
       });
       text += '\n';
     });
@@ -1170,6 +1178,18 @@ function App() {
     trackSave();
   };
 
+  // 如果显示号码分布黑板，则直接渲染该页面
+  if (showBlackboard) {
+    return (
+      <AuthGuard>
+        <LotteryBlackboard 
+          historyData={analyzer.historyData} 
+          onBack={() => setShowBlackboard(false)} 
+        />
+      </AuthGuard>
+    );
+  }
+  
   // 如果显示福彩双色球玩法页面，则直接渲染该页面
   if (showSSQPage) {
     return (
@@ -1276,7 +1296,25 @@ function App() {
           const latestDraw = getLatestDrawFromData();
           return latestDraw && (
             <section className="card latest-draw-card">
-              <h2>🎯 最新一期开奖</h2>
+              <h2>🎯 最新一期开奖
+                <button 
+                  onClick={() => setShowBlackboard(true)}
+                  style={{
+                    marginLeft: '8px',
+                    padding: '2px 8px',
+                    fontSize: '0.75em',
+                    background: 'linear-gradient(135deg, #1a3a2a, #2d5a3d)',
+                    color: '#f0e68c',
+                    border: '1px solid #f0e68c',
+                    borderRadius: '4px',
+                    cursor: 'pointer',
+                    fontWeight: 'bold',
+                    letterSpacing: '1px'
+                  }}
+                >
+                  📋 小黑板
+                </button>
+              </h2>
               <div className="latest-draw-content">
                 <div className="draw-info">
                   <span className="draw-period">最新一期</span>
@@ -1319,6 +1357,11 @@ function App() {
             </section>
           );
         })()}
+
+        {/* 近60期区间分布分析 */}
+        {analyzer.historyData && analyzer.historyData.length > 0 && (
+          <ZoneAnalysisPanel historyData={analyzer.historyData} />
+        )}
 
         {/* 胆拖玩法 */}
         <section className="card dantuo-section">
@@ -2211,6 +2254,18 @@ function App() {
                         <div className="sum-item">
                           <span className="sum-label">后区和值</span>
                           <span className="sum-number">{p.back.reduce((a, b) => a + b, 0)}</span>
+                        </div>
+                        <div className="sum-item">
+                          <span className="sum-label">前区奇偶</span>
+                          <span className="sum-number" style={{fontSize: '0.85em'}}>{(() => {
+                            const oddCount = p.front.filter(n => n % 2 !== 0).length;
+                            const evenCount = p.front.length - oddCount;
+                            const ratio = `${oddCount}:${evenCount}`;
+                            // 三级评价：理想(2:3/3:2)✓ / 良好(1:4/4:1) / 偏态(0:5/5:0)⚠
+                            if (oddCount >= 2 && oddCount <= 3) return `${ratio} ✓`;
+                            if (oddCount === 1 || oddCount === p.front.length - 1) return `${ratio}`;
+                            return `${ratio} ⚠`;
+                          })()}</span>
                         </div>
                       </div>
                       {groups.length > 1 && <div className="group-separator"></div>}

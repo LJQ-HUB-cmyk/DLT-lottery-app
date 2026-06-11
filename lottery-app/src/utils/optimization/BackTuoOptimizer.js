@@ -15,9 +15,21 @@ export class BackTuoOptimizer {
    * @param {number} tuoCount - 需要推荐的拖码数量
    * @returns {Object} { selected: number[], probabilityInfo: Object[] }
    */
-  static optimize(analyzer, danNumbers, tuoCount = 4, strategy = 'balanced') {
+  static optimize(analyzer, danNumbers, tuoCount = 4, strategy = 'balanced', dimensionMultipliers = null) {
     console.log('🎯 后区拖码智能推荐（多维度评分 + 加权随机采样）');
     console.log('  胆码:', danNumbers, '拖码数量:', tuoCount);
+
+    // 维度权重倍率（基于后区拖码敏感性分析结果优化）
+    // 核心发现：后区拖码(4选)的目标是最大化覆盖率，评分偏向热号反而降低多样性
+    // hot策略：所有维度负贡献！评分过度集中热号→仅保留遗漏评分(最小负贡献-0.7%)
+    // balanced/保守策略：仅遗漏回归正贡献(+2.9%)，移除其他负贡献维度
+    const defaultMultipliers = {
+      hot: { conditionalProb: 0, omission: 1, freqMomentum: 0, timeDecay: 0, hotZoneTrend: 0, repeatFactor: 0, zone4Trend: 0, coolingPenalty: 0, freqTrend: 0 },
+      balanced: { conditionalProb: 0, omission: 1, freqMomentum: 0, timeDecay: 0, freqTrend: 0, zone4Trend: 0 },
+      conservative: { conditionalProb: 0, omission: 1, freqMomentum: 0, timeDecay: 0, freqTrend: 0, zone4Trend: 0 }
+    };
+
+    const dm = dimensionMultipliers || defaultMultipliers[strategy];
 
     // 1. 获取条件概率
     const conditionalProb = analyzer.conditionalProbability.calculateConditionalProbability();
@@ -124,7 +136,7 @@ export class BackTuoOptimizer {
       // 维度1: 条件概率得分（热号20分，均衡/保守25分）- 归一化
       const condProb = conditionalProb.back[num] || 0;
       const normalizedCondProb = maxCondProb > 0 ? condProb / maxCondProb : 0;
-      score += normalizedCondProb * (strategy === 'hot' ? 20 : 25);
+      score += normalizedCondProb * (strategy === 'hot' ? 20 : 25) * dm.conditionalProb;
 
       // 维度2: 遗漏/趋势评分（热号20分，均衡/保守25分）- 热号策略奖励低遗漏，均衡/保守策略奖励遗漏回归
       const currentOmission = omissionData.back[num] || 0;
@@ -140,16 +152,16 @@ export class BackTuoOptimizer {
           );
           const normalizedHotness = maxNegDeviation > 0
             ? Math.abs(omissionDeviation) / maxNegDeviation : 0;
-          score += normalizedHotness * 20;
+          score += normalizedHotness * 20 * dm.omission;
         }
       } else {
         // 均衡/保守策略：遗漏回归逻辑
         if (omissionDeviation > 0) {
           const normalizedDeviation = maxPositiveDeviation > 0
             ? omissionDeviation / maxPositiveDeviation : 0;
-          score += normalizedDeviation * 20;
+          score += normalizedDeviation * 20 * dm.omission;
           if (omissionDeviation > omissionStd * 2) {
-            score += 5;
+            score += 5 * dm.omission;
           }
         }
       }
@@ -160,13 +172,13 @@ export class BackTuoOptimizer {
       const momentum = recentFreq.backMomentum[num] || 0;
       const maxMomentum = Math.max(...Object.values(recentFreq.backMomentum).map(m => Math.abs(m)));
       const normalizedMomentum = maxMomentum > 0 ? momentum / maxMomentum : 0;
-      score += freqBase + Math.max(0, normalizedMomentum) * 5;
+      score += freqBase + Math.max(0, normalizedMomentum) * 5 * dm.freqMomentum;
 
       // 维度4: 时间衰减得分（热号10分，均衡/保守15分）- 归一化
       const rawTimeWeight = rawTimeWeights.back[num] || 0;
       const normalizedTimeWeight = maxBackTimeWeight > 0
         ? rawTimeWeight / maxBackTimeWeight : 0;
-      score += normalizedTimeWeight * (strategy === 'hot' ? 10 : 15);
+      score += normalizedTimeWeight * (strategy === 'hot' ? 10 : 15) * dm.timeDecay;
 
       // 维度5: 区间/热区评分（优化4：热号热区趋势降至5分+4小区趋势5分=10分；均衡/保守频率趋势降至15分+4小区趋势5分=20分）
       if (strategy === 'hot') {
@@ -175,11 +187,11 @@ export class BackTuoOptimizer {
           ? (isFirstHalf ? hotFirstHalfFreq / hotTotalFreq : hotSecondHalfFreq / hotTotalFreq) : 0.5;
         const hotZoneBonus = halfRecentRatio > 0.45
           ? Math.min((halfRecentRatio - 0.45) * 10, 5) : 0;
-        score += hotZoneBonus;
+        score += hotZoneBonus * dm.hotZoneTrend;
         
         // 重号因子加分（10分满分）：上期出现的号码本期更可能再出
         if (lastDraw && lastDraw.back.includes(num)) {
-          score += Math.min(repeatAnalysis.backRepeatRate * 10, 10);
+          score += Math.min(repeatAnalysis.backRepeatRate * 10, 10) * dm.repeatFactor;
         }
       } else {
         // 均衡/保守策略：频率趋势加分（15分满分，从20分降至15分释放5分给4小区趋势）
@@ -187,7 +199,7 @@ export class BackTuoOptimizer {
         const freqTrendMax = 15;
         if (freqRate > expectedRate && maxFreqRate > expectedRate) {
           const normalizedTrend = (freqRate - expectedRate) / (maxFreqRate - expectedRate);
-          score += normalizedTrend * freqTrendMax;
+          score += normalizedTrend * freqTrendMax * dm.freqTrend;
         }
       }
       
@@ -195,15 +207,15 @@ export class BackTuoOptimizer {
       const backZone4Num = getBackZone4(num);
       const backZone4Pred = backZone4Prediction[backZone4Num];
       if (strategy === 'hot') {
-        if (backZone4Pred === 'must') score += 5;
-        else if (backZone4Pred === 'very_likely') score += 3;
-        else if (backZone4Pred === 'likely_warm') score += 1;
-        else if (backZone4Pred === 'unlikely_cool') score -= 3;
+        if (backZone4Pred === 'must') score += 5 * dm.zone4Trend;
+        else if (backZone4Pred === 'very_likely') score += 3 * dm.zone4Trend;
+        else if (backZone4Pred === 'likely_warm') score += 1 * dm.zone4Trend;
+        else if (backZone4Pred === 'unlikely_cool') score -= 3 * dm.zone4Trend;
       } else {
-        if (backZone4Pred === 'must') score += 5;
-        else if (backZone4Pred === 'very_likely') score += 3;
-        else if (backZone4Pred === 'likely_warm') score += 1;
-        else if (backZone4Pred === 'unlikely_cool') score -= 2;
+        if (backZone4Pred === 'must') score += 5 * dm.zone4Trend;
+        else if (backZone4Pred === 'very_likely') score += 3 * dm.zone4Trend;
+        else if (backZone4Pred === 'likely_warm') score += 1 * dm.zone4Trend;
+        else if (backZone4Pred === 'unlikely_cool') score -= 2 * dm.zone4Trend;
       }
       
       // 热号策略：冷却惩罚（最多扣5分）
@@ -216,7 +228,7 @@ export class BackTuoOptimizer {
           const coolingDegree = (currentOmission - avgBackOmission) / avgBackOmission;
           const freqHeat = numFreq / avgFreqPerNum;
           const penalty = Math.min(coolingDegree * freqHeat * 2, 5);
-          score -= penalty;
+          score -= penalty * dm.coolingPenalty;
         }
       }
 

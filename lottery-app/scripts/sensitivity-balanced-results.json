@@ -1,0 +1,231 @@
+{
+  "strategy": "balanced",
+  "totalPeriods": 214,
+  "repeatCount": 5,
+  "frontBaseline": {
+    "avgHits": 0.4097560975609756,
+    "hitRate": 0.35609756097560974,
+    "validPeriods": 164,
+    "totalSamples": 820
+  },
+  "backBaseline": {
+    "avgHits": 0.16463414634146342,
+    "hitRate": 0.16463414634146342,
+    "validPeriods": 164,
+    "totalSamples": 820
+  },
+  "frontAblationResults": [
+    {
+      "key": "freqMomentum",
+      "label": "频率+动量",
+      "weight": "15分",
+      "baselineRate": 35.609756097560975,
+      "ablationRate": 32.926829268292686,
+      "deltaRate": 2.6829268292682897,
+      "baselineAvg": 0.4097560975609756,
+      "ablationAvg": 0.3853658536585366,
+      "deltaAvg": 0.02439024390243899,
+      "contribution": 2.6829268292682897
+    },
+    {
+      "key": "freqTrend",
+      "label": "频率趋势",
+      "weight": "10分",
+      "baselineRate": 35.609756097560975,
+      "ablationRate": 33.29268292682927,
+      "deltaRate": 2.317073170731704,
+      "baselineAvg": 0.4097560975609756,
+      "ablationAvg": 0.38658536585365855,
+      "deltaAvg": 0.023170731707317038,
+      "contribution": 2.317073170731704
+    },
+    {
+      "key": "consecutive",
+      "label": "连号协同",
+      "weight": "5分",
+      "baselineRate": 35.609756097560975,
+      "ablationRate": 34.390243902439025,
+      "deltaRate": 1.2195121951219523,
+      "baselineAvg": 0.4097560975609756,
+      "ablationAvg": 0.39878048780487807,
+      "deltaAvg": 0.010975609756097515,
+      "contribution": 1.2195121951219523
+    },
+    {
+      "key": "conditionalProb",
+      "label": "条件概率",
+      "weight": "30分",
+      "baselineRate": 35.609756097560975,
+      "ablationRate": 34.63414634146341,
+      "deltaRate": 0.9756097560975618,
+      "baselineAvg": 0.4097560975609756,
+      "ablationAvg": 0.39878048780487807,
+      "deltaAvg": 0.010975609756097515,
+      "contribution": 0.9756097560975618
+    },
+    {
+      "key": "timeDecay",
+      "label": "时间衰减",
+      "weight": "15分",
+      "baselineRate": 35.609756097560975,
+      "ablationRate": 35.609756097560975,
+      "deltaRate": 0,
+      "baselineAvg": 0.4097560975609756,
+      "ablationAvg": 0.4097560975609756,
+      "deltaAvg": 0,
+      "contribution": 0
+    },
+    {
+      "key": "zone5Trend",
+      "label": "5小区动态趋势",
+      "weight": "10分",
+      "baselineRate": 35.609756097560975,
+      "ablationRate": 36.21951219512195,
+      "deltaRate": -0.6097560975609762,
+      "baselineAvg": 0.4097560975609756,
+      "ablationAvg": 0.41341463414634144,
+      "deltaAvg": -0.003658536585365857,
+      "contribution": -0.6097560975609762
+    },
+    {
+      "key": "omissionDeviation",
+      "label": "遗漏偏离度",
+      "weight": "20分",
+      "baselineRate": 35.609756097560975,
+      "ablationRate": 36.58536585365854,
+      "deltaRate": -0.9756097560975618,
+      "baselineAvg": 0.4097560975609756,
+      "ablationAvg": 0.4121951219512195,
+      "deltaAvg": -0.0024390243902439046,
+      "contribution": -0.9756097560975618
+    }
+  ],
+  "backAblationResults": [
+    {
+      "key": "zone4Trend",
+      "label": "4小区动态趋势",
+      "weight": "15分",
+      "baselineRate": 16.463414634146343,
+      "ablationRate": 13.414634146341465,
+      "deltaRate": 3.048780487804878,
+      "contribution": 3.048780487804878
+    },
+    {
+      "key": "omissionDeviation",
+      "label": "遗漏偏离度",
+      "weight": "20分",
+      "baselineRate": 16.463414634146343,
+      "ablationRate": 14.02439024390244,
+      "deltaRate": 2.439024390243902,
+      "contribution": 2.439024390243902
+    },
+    {
+      "key": "timeDecay",
+      "label": "时间衰减",
+      "weight": "15分",
+      "baselineRate": 16.463414634146343,
+      "ablationRate": 16.463414634146343,
+      "deltaRate": 0,
+      "contribution": 0
+    },
+    {
+      "key": "conditionalProb",
+      "label": "条件概率",
+      "weight": "20分",
+      "baselineRate": 16.463414634146343,
+      "ablationRate": 17.073170731707318,
+      "deltaRate": -0.6097560975609762,
+      "contribution": -0.6097560975609762
+    },
+    {
+      "key": "freqMomentum",
+      "label": "频率+动量",
+      "weight": "15分",
+      "baselineRate": 16.463414634146343,
+      "ablationRate": 17.682926829268293,
+      "deltaRate": -1.2195121951219496,
+      "contribution": -1.2195121951219496
+    },
+    {
+      "key": "freqTrend",
+      "label": "频率趋势",
+      "weight": "15分",
+      "baselineRate": 16.463414634146343,
+      "ablationRate": 20.121951219512198,
+      "deltaRate": -3.6585365853658542,
+      "contribution": -3.6585365853658542
+    }
+  ],
+  "frontDimensionDefs": [
+    {
+      "key": "freqMomentum",
+      "label": "频率+动量",
+      "weight": "15分"
+    },
+    {
+      "key": "conditionalProb",
+      "label": "条件概率",
+      "weight": "30分"
+    },
+    {
+      "key": "omissionDeviation",
+      "label": "遗漏偏离度",
+      "weight": "20分"
+    },
+    {
+      "key": "timeDecay",
+      "label": "时间衰减",
+      "weight": "15分"
+    },
+    {
+      "key": "freqTrend",
+      "label": "频率趋势",
+      "weight": "10分"
+    },
+    {
+      "key": "zone5Trend",
+      "label": "5小区动态趋势",
+      "weight": "10分"
+    },
+    {
+      "key": "consecutive",
+      "label": "连号协同",
+      "weight": "5分"
+    }
+  ],
+  "backDimensionDefs": [
+    {
+      "key": "conditionalProb",
+      "label": "条件概率",
+      "weight": "20分"
+    },
+    {
+      "key": "omissionDeviation",
+      "label": "遗漏偏离度",
+      "weight": "20分"
+    },
+    {
+      "key": "freqMomentum",
+      "label": "频率+动量",
+      "weight": "15分"
+    },
+    {
+      "key": "timeDecay",
+      "label": "时间衰减",
+      "weight": "15分"
+    },
+    {
+      "key": "freqTrend",
+      "label": "频率趋势",
+      "weight": "15分"
+    },
+    {
+      "key": "zone4Trend",
+      "label": "4小区动态趋势",
+      "weight": "15分"
+    }
+  ],
+  "meta": {
+    "timestamp": "2026-06-10T15:41:58.104Z"
+  }
+}

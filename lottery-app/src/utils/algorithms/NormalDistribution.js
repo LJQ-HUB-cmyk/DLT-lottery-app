@@ -58,6 +58,10 @@ export class NormalDistributionModel extends BaseModel {
       const diffF = Math.abs(sumF - targetSumFront);
       const diffB = Math.abs(sumB - targetSumBack);
 
+      // 奇偶比检查：排除0:5和5:0极端比例，允许1:4和4:1
+      const fOddCount = f.filter(n => n % 2 !== 0).length;
+      if (fOddCount === 0 || fOddCount === CONFIG.FRONT_COUNT) continue;
+
       // 综合评分：和值接近度 + 组合质量 + 区间覆盖
       const sumScore = 100 - (diffF / targetSumFront * 50 + diffB / targetSumBack * 50);
       const qualityScore = this.evaluateCombination(f, b);
@@ -94,16 +98,24 @@ export class NormalDistributionModel extends BaseModel {
    * 评估组合质量（简化版）
    */
   evaluateCombination(front) {
-    // 简化的质量评估：基于奇偶比、大小比等
+    // 简化的质量评估：基于奇偶比、大小比等（连续归一化评分）
     let score = 50; // 基础分
     
-    // 奇偶平衡
+    // 奇偶平衡（连续归一化：2:3/3:2满分10，1:4/4:1半5分，0:5/5:0不加分）
     const oddCount = front.filter(n => n % 2 !== 0).length;
-    if (oddCount >= 2 && oddCount <= 3) score += 10;
+    if (oddCount >= 2 && oddCount <= 3) {
+      score += 10; // 理想比例满分
+    } else if (oddCount === 1 || oddCount === front.length - 1) {
+      score += 5;  // 1:4或4:1半分
+    } // 0:5或5:0不加分
     
-    // 大小平衡
+    // 大小平衡（连续归一化）
     const bigCount = front.filter(n => n > 17).length;
-    if (bigCount >= 2 && bigCount <= 3) score += 10;
+    if (bigCount >= 2 && bigCount <= 3) {
+      score += 10;
+    } else if (bigCount === 1 || bigCount === front.length - 1) {
+      score += 5;
+    }
     
     return score;
   }

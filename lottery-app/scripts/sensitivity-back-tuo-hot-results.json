@@ -1,0 +1,161 @@
+{
+  "strategy": "hot",
+  "totalPeriods": 214,
+  "repeatCount": 5,
+  "baseline": {
+    "avgDanHits": 0.17073170731707318,
+    "avgTuoHits": 0.6487804878048781,
+    "avgCoverage": 0.8195121951219512,
+    "coverageAtLeast1Rate": 0.6609756097560976,
+    "coverageBothRate": 0.15853658536585366,
+    "validPeriods": 164,
+    "totalSamples": 820
+  },
+  "randomBaseline": {
+    "coverageAtLeast1": 0.6818181818181819,
+    "coverageBoth": 0.15151515151515152
+  },
+  "ablationResults": [
+    {
+      "key": "timeDecay",
+      "label": "时间衰减",
+      "weight": "10分",
+      "baselineCoverage": 0.6609756097560976,
+      "ablationCoverage": 0.6646341463414634,
+      "deltaCoverage": -0.003658536585365857,
+      "baselineBoth": 0.15853658536585366,
+      "ablationBoth": 0.12682926829268293,
+      "deltaBoth": 0.03170731707317073,
+      "contribution": -0.3658536585365857
+    },
+    {
+      "key": "omission",
+      "label": "遗漏评分(低遗漏奖)",
+      "weight": "20分",
+      "baselineCoverage": 0.6609756097560976,
+      "ablationCoverage": 0.6682926829268293,
+      "deltaCoverage": -0.007317073170731714,
+      "baselineBoth": 0.15853658536585366,
+      "ablationBoth": 0.13902439024390245,
+      "deltaBoth": 0.01951219512195121,
+      "contribution": -0.7317073170731714
+    },
+    {
+      "key": "zone4Trend",
+      "label": "4小区趋势",
+      "weight": "5分",
+      "baselineCoverage": 0.6609756097560976,
+      "ablationCoverage": 0.6719512195121952,
+      "deltaCoverage": -0.01097560975609757,
+      "baselineBoth": 0.15853658536585366,
+      "ablationBoth": 0.16219512195121952,
+      "deltaBoth": -0.003658536585365857,
+      "contribution": -1.097560975609757
+    },
+    {
+      "key": "coolingPenalty",
+      "label": "冷却惩罚",
+      "weight": "-5分",
+      "baselineCoverage": 0.6609756097560976,
+      "ablationCoverage": 0.6731707317073171,
+      "deltaCoverage": -0.012195121951219523,
+      "baselineBoth": 0.15853658536585366,
+      "ablationBoth": 0.1378048780487805,
+      "deltaBoth": 0.02073170731707316,
+      "contribution": -1.2195121951219523
+    },
+    {
+      "key": "hotZoneTrend",
+      "label": "热区趋势(半区)",
+      "weight": "5分",
+      "baselineCoverage": 0.6609756097560976,
+      "ablationCoverage": 0.6804878048780488,
+      "deltaCoverage": -0.019512195121951237,
+      "baselineBoth": 0.15853658536585366,
+      "ablationBoth": 0.16951219512195123,
+      "deltaBoth": -0.01097560975609757,
+      "contribution": -1.9512195121951237
+    },
+    {
+      "key": "conditionalProb",
+      "label": "条件概率",
+      "weight": "20分",
+      "baselineCoverage": 0.6609756097560976,
+      "ablationCoverage": 0.6817073170731708,
+      "deltaCoverage": -0.02073170731707319,
+      "baselineBoth": 0.15853658536585366,
+      "ablationBoth": 0.16951219512195123,
+      "deltaBoth": -0.01097560975609757,
+      "contribution": -2.073170731707319
+    },
+    {
+      "key": "repeatFactor",
+      "label": "重号因子",
+      "weight": "10分",
+      "baselineCoverage": 0.6609756097560976,
+      "ablationCoverage": 0.6914634146341463,
+      "deltaCoverage": -0.030487804878048697,
+      "baselineBoth": 0.15853658536585366,
+      "ablationBoth": 0.17804878048780487,
+      "deltaBoth": -0.01951219512195121,
+      "contribution": -3.0487804878048697
+    },
+    {
+      "key": "freqMomentum",
+      "label": "频率+动量",
+      "weight": "20分",
+      "baselineCoverage": 0.6609756097560976,
+      "ablationCoverage": 0.7121951219512195,
+      "deltaCoverage": -0.051219512195121886,
+      "baselineBoth": 0.15853658536585366,
+      "ablationBoth": 0.14390243902439023,
+      "deltaBoth": 0.014634146341463428,
+      "contribution": -5.121951219512189
+    }
+  ],
+  "dimensionDefs": [
+    {
+      "key": "conditionalProb",
+      "label": "条件概率",
+      "weight": "20分"
+    },
+    {
+      "key": "omission",
+      "label": "遗漏评分(低遗漏奖)",
+      "weight": "20分"
+    },
+    {
+      "key": "freqMomentum",
+      "label": "频率+动量",
+      "weight": "20分"
+    },
+    {
+      "key": "timeDecay",
+      "label": "时间衰减",
+      "weight": "10分"
+    },
+    {
+      "key": "hotZoneTrend",
+      "label": "热区趋势(半区)",
+      "weight": "5分"
+    },
+    {
+      "key": "repeatFactor",
+      "label": "重号因子",
+      "weight": "10分"
+    },
+    {
+      "key": "zone4Trend",
+      "label": "4小区趋势",
+      "weight": "5分"
+    },
+    {
+      "key": "coolingPenalty",
+      "label": "冷却惩罚",
+      "weight": "-5分"
+    }
+  ],
+  "meta": {
+    "timestamp": "2026-06-10T15:53:32.006Z"
+  }
+}

@@ -1,0 +1,542 @@
+/* ========================================
+   彩票数据分析图表样式
+   ======================================== */
+
+.lottery-charts-container {
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  overflow-x: auto;
+}
+
+.charts-empty {
+  text-align: center;
+  color: #999;
+  padding: 40px;
+  font-size: 16px;
+}
+
+/* 图表区块 */
+.chart-section {
+  background: rgba(25, 55, 35, 0.9) !important;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 16px;
+  overflow-x: auto;
+}
+
+.chart-title {
+  font-size: 18px;
+  font-weight: bold;
+  color: #f0e68c;
+  margin: 0 0 8px 0;
+  letter-spacing: 1px;
+}
+
+.chart-subtitle {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.6);
+  margin-bottom: 12px;
+}
+
+/* ========== 1. 频率柱状图（重写版）========== */
+.freq-chart-wrapper {
+  display: flex;
+  gap: 4px;
+  padding: 10px 5px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  min-height: 220px;
+}
+
+.freq-chart-back {
+  min-height: 180px;
+}
+
+.freq-bar-item {
+  flex-shrink: 0;
+  width: 28px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.freq-bar-container {
+  width: 24px;
+  height: 160px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 3px 3px 0 0;
+  padding: 2px;
+}
+
+.freq-bar {
+  width: 100%;
+  border-radius: 2px 2px 0 0;
+  transition: all 0.2s;
+  min-height: 5px;
+}
+
+.freq-bar:hover {
+  opacity: 0.8;
+  transform: scaleY(1.05);
+}
+
+.freq-num {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.8);
+  margin-top: 4px;
+  font-weight: bold;
+}
+
+.freq-count {
+  font-size: 9px;
+  color: rgba(255, 255, 255, 0.6);
+  margin-top: 2px;
+}
+
+/* ========== 2. 遗漏折线图（重写版）========== */
+.omission-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 8px;
+}
+
+.omission-back {
+  grid-template-columns: repeat(6, 1fr);
+}
+
+.omission-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  background: rgba(0, 0, 0, 0.4) !important;
+  border-radius: 4px;
+  padding: 8px 4px;
+  min-height: 80px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.omission-cell:hover {
+  background: rgba(0, 0, 0, 0.5) !important;
+  transform: scale(1.05);
+}
+
+.omission-num {
+  font-size: 14px;
+  color: #f0e68c;
+  font-weight: bold;
+  margin-bottom: 6px;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+}
+
+.omission-bar {
+  width: 10px;
+  border-radius: 3px;
+  transition: all 0.2s;
+  min-height: 4px;
+}
+
+.omission-value {
+  font-size: 12px;
+  color: #fff;
+  margin-top: 6px;
+  font-weight: bold;
+}
+
+/* ========== 3. 奇偶分布 ========== */
+.odd-even-container {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.odd-even-box {
+  flex: 1;
+  min-width: 200px;
+  background: rgba(0, 0, 0, 0.35) !important;
+  border-radius: 6px;
+  padding: 12px;
+}
+
+.oe-title {
+  font-size: 14px;
+  font-weight: bold;
+  color: #f0e68c;
+  margin-bottom: 10px;
+  text-align: center;
+}
+
+.oe-stats {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.oe-stat {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 8px;
+  border-radius: 4px;
+}
+
+.oe-stat.odd {
+  background: rgba(255, 100, 100, 0.2);
+  border: 1px solid rgba(255, 100, 100, 0.3);
+}
+
+.oe-stat.even {
+  background: rgba(100, 150, 255, 0.2);
+  border: 1px solid rgba(100, 150, 255, 0.3);
+}
+
+.oe-label {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.7);
+  margin-bottom: 4px;
+}
+
+.oe-count {
+  font-size: 24px;
+  font-weight: bold;
+  color: #fff;
+}
+
+.oe-percent {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.6);
+  margin-top: 2px;
+}
+
+.oe-ratio {
+  text-align: center;
+  font-size: 13px;
+  color: #f0e68c;
+  font-weight: bold;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* ========== 4. 区间出号密度（重写版）========== */
+.zone-chart-wrapper {
+  display: flex;
+  gap: 8px;
+  padding: 10px 5px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  min-height: 220px;
+}
+
+.zone-bar-item {
+  flex-shrink: 0;
+  width: 40px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.zone-bar-container {
+  width: 36px;
+  height: 160px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 3px 3px 0 0;
+  padding: 2px;
+}
+
+.zone-bar {
+  width: 100%;
+  border-radius: 2px 2px 0 0;
+  transition: all 0.2s;
+  min-height: 5px;
+}
+
+.zone-bar:hover {
+  opacity: 0.8;
+  transform: scaleY(1.05);
+}
+
+.zone-range-label {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.8);
+  margin-top: 4px;
+  font-weight: bold;
+}
+
+.zone-count-label {
+  font-size: 11px;
+  color: #fff;
+  font-weight: bold;
+  margin-top: 2px;
+}
+
+/* ========== 5. 连号统计 ========== */
+.consecutive-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.cons-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.cons-label {
+  min-width: 100px;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.cons-value {
+  min-width: 40px;
+  font-size: 18px;
+  font-weight: bold;
+  color: #f0e68c;
+  text-align: right;
+}
+
+.cons-bar {
+  flex: 1;
+  height: 20px;
+  background: linear-gradient(90deg, #ff6b35, #ff8844);
+  border-radius: 3px;
+  transition: all 0.3s;
+}
+
+/* ========== 6. 和值分布（重写版）========== */
+.sum-chart-wrapper {
+  display: flex;
+  gap: 8px;
+  padding: 10px 5px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  min-height: 220px;
+}
+
+.sum-bar-item {
+  flex-shrink: 0;
+  width: 60px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.sum-bar-container {
+  width: 56px;
+  height: 160px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 3px 3px 0 0;
+  padding: 2px;
+}
+
+.sum-bar {
+  width: 100%;
+  border-radius: 2px 2px 0 0;
+  transition: all 0.2s;
+  min-height: 5px;
+}
+
+.sum-bar:hover {
+  opacity: 0.8;
+  transform: scaleY(1.05);
+}
+
+.sum-range-label {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.8);
+  margin-top: 4px;
+  font-weight: bold;
+}
+
+.sum-count-label {
+  font-size: 12px;
+  color: #fff;
+  font-weight: bold;
+  margin-top: 2px;
+}
+
+/* ========== 7. 跨度走势（重写版）========== */
+.span-chart-wrapper {
+  display: flex;
+  gap: 4px;
+  padding: 10px 5px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  min-height: 220px;
+}
+
+.span-bar-item {
+  flex-shrink: 0;
+  width: 28px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.span-bar-container {
+  width: 24px;
+  height: 160px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 3px 3px 0 0;
+  padding: 2px;
+}
+
+.span-bar {
+  width: 100%;
+  border-radius: 2px 2px 0 0;
+  transition: all 0.2s;
+  min-height: 5px;
+}
+
+.span-bar:hover {
+  opacity: 0.8;
+  transform: scaleY(1.05);
+}
+
+.span-period {
+  font-size: 9px;
+  color: rgba(255, 255, 255, 0.6);
+  margin-top: 4px;
+}
+
+.span-value {
+  font-size: 11px;
+  color: #fff;
+  font-weight: bold;
+  margin-top: 2px;
+}
+
+/* 响应式调整 */
+@media (max-width: 480px) {
+  .freq-chart-wrapper {
+    min-height: 180px;
+  }
+  
+  .freq-bar-item {
+    width: 22px;
+  }
+  
+  .freq-bar-container {
+    width: 18px;
+    height: 130px;
+  }
+  
+  .freq-num {
+    font-size: 8px;
+  }
+  
+  .freq-count {
+    font-size: 7px;
+  }
+  
+  .omission-grid {
+    grid-template-columns: repeat(5, 1fr);
+    gap: 6px;
+  }
+  
+  .omission-back {
+    grid-template-columns: repeat(4, 1fr);
+  }
+  
+  .omission-cell {
+    min-height: 70px;
+    padding: 6px 3px;
+  }
+  
+  .omission-num {
+    font-size: 12px;
+    margin-bottom: 4px;
+  }
+  
+  .omission-bar {
+    width: 8px;
+  }
+  
+  .omission-value {
+    font-size: 10px;
+    margin-top: 4px;
+  }
+  
+  .odd-even-container {
+    flex-direction: column;
+  }
+  
+  .zone-chart-wrapper {
+    min-height: 180px;
+  }
+  
+  .zone-bar-item {
+    width: 32px;
+  }
+  
+  .zone-bar-container {
+    width: 28px;
+    height: 130px;
+  }
+  
+  .zone-range-label {
+    font-size: 8px;
+  }
+  
+  .zone-count-label {
+    font-size: 9px;
+  }
+  
+  .sum-chart-wrapper {
+    min-height: 180px;
+  }
+  
+  .sum-bar-item {
+    width: 48px;
+  }
+  
+  .sum-bar-container {
+    width: 44px;
+    height: 130px;
+  }
+  
+  .sum-range-label {
+    font-size: 9px;
+  }
+  
+  .sum-count-label {
+    font-size: 10px;
+  }
+  
+  .span-chart-wrapper {
+    min-height: 180px;
+  }
+  
+  .span-bar-item {
+    width: 22px;
+  }
+  
+  .span-bar-container {
+    width: 18px;
+    height: 130px;
+  }
+  
+  .span-period {
+    font-size: 7px;
+  }
+  
+  .span-value {
+    font-size: 9px;
+  }
+}

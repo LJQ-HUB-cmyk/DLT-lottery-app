@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import SSQLotteryAnalyzer, { SSQ_DEFAULT_DATA } from '../utils/SSQLotteryAnalyzer.js';
+import ShuangSeQiuAnalyzer, { SSQ_DEFAULT_DATA } from '../utils/ShuangSeQiuAnalyzer.js';
 
 // 算法模型名称映射
 const ssqModelNames = {
@@ -7,13 +7,11 @@ const ssqModelNames = {
   bayesian: '贝叶斯动态',
   omissionAnalysis: '遗漏分析',
   timeDecay: '时间衰减',
+  zoneFrequency: '区间频率',
   meanRegression: '均值回归',
   balancedStrategy: '平衡策略',
   normalDistribution: '正态分布',
-  zoneFrequency: '区间频率',
-  zhouyi: '周易时空',
-  hybrid: '混合模型',
-  rotation: '旋转矩阵'
+  hybrid: '混合模型'
 };
 
 // 算法模型简短描述
@@ -22,20 +20,18 @@ const ssqModelDesc = {
   bayesian: '动态调整后验概率',
   omissionAnalysis: '寻找遗漏回归号码',
   timeDecay: '近期号码权重更高',
-  meanRegression: '号码围绕均值波动',
+  zoneFrequency: '三区间定位选号',
+  meanRegression: '偏离均值号码回归',
   balancedStrategy: '热号与冷号均衡',
-  normalDistribution: '符合正态分布规律',
-  zoneFrequency: '区间定位选号',
-  zhouyi: '周易卦象融合',
-  hybrid: '多模型投票机制',
-  rotation: '旋转矩阵覆盖'
+  normalDistribution: '频率正态分布选号',
+  hybrid: '多模型投票机制'
 };
 
 // 福彩双色球玩法页面
 function ShuangSeQiuPage({ onBack }) {
   const [activeTab, setActiveTab] = useState('rules');
   const [expandedPrize, setExpandedPrize] = useState(null);
-  const [ssqAnalyzer] = useState(new SSQLotteryAnalyzer());
+  const [ssqAnalyzer] = useState(new ShuangSeQiuAnalyzer());
   const [recommendation, setRecommendation] = useState(null);
   const [selectedModels, setSelectedModels] = useState(['frequencyWeighted', 'bayesian', 'hybrid']);
   const [groupsPerModel, setGroupsPerModel] = useState(3);
@@ -46,16 +42,35 @@ function ShuangSeQiuPage({ onBack }) {
   const [recentDraws, setRecentDraws] = useState([]);
   const [showAllHistory, setShowAllHistory] = useState(false);
 
+  // 计算红球奇偶比（双色球6个红球的奇偶比分布：3:3最常见47%，4:2/2:4约32%，5:1/1:5约21%）
+  const calcOddEvenRatio = (redNumbers) => {
+    const oddCount = redNumbers.filter(n => n % 2 === 1).length;
+    const evenCount = redNumbers.length - oddCount;
+    // 理想比例：3:3、4:2、2:4 → 绿色标记
+    // 偏态比例：5:1、1:5 → 警告标记
+    // 极端比例：6:0、0:6 → 强警告
+    const ratio = `${oddCount}:${evenCount}`;
+    let quality = 'good';
+    let symbol = '✓';
+    if (oddCount === 3) { quality = 'ideal'; symbol = '✓'; }
+    else if (oddCount === 2 || oddCount === 4) { quality = 'good'; symbol = '✓'; }
+    else if (oddCount === 1 || oddCount === 5) { quality = 'warn'; symbol = '⚠'; }
+    else { quality = 'extreme'; symbol = '⚠⚠'; }
+    return { oddCount, evenCount, text: `${ratio} ${symbol}`, quality, symbol, plainText: `奇偶${ratio}${symbol}` };
+  };
+
   // 初始化加载默认数据
   useEffect(() => {
     try {
       ssqAnalyzer.loadHistoryData(SSQ_DEFAULT_DATA, '双色球示例数据');
       setDataLoaded(true);
+      
       // 获取最新开奖号码
-      const history = ssqAnalyzer.analyzer.historyData;
+      const history = ssqAnalyzer.dataLoader.historyData;
       if (history && history.length > 0) {
         const latest = history[history.length - 1];
         setLatestDraw({ red: latest.front, blue: latest.back, period: history.length });
+        
         // 获取最近10期数据
         const recent = history.slice(-10).reverse().map((draw, idx) => ({
           period: history.length - idx,
@@ -68,12 +83,13 @@ function ShuangSeQiuPage({ onBack }) {
     } catch (e) {
       console.error('❌ 双色球数据加载失败:', e);
     }
-    return () => ssqAnalyzer.destroy();
+    // 注意：不在 cleanup 中调用 destroy()，因为 React 开发模式会执行两次
+    // return () => ssqAnalyzer.destroy();
   }, []);
 
   // 获取全部历史数据
   const getAllDraws = () => {
-    const history = ssqAnalyzer.analyzer.historyData;
+    const history = ssqAnalyzer.dataLoader.historyData;
     if (!history) return [];
     return history.map((draw, idx) => ({
       period: idx + 1,
@@ -85,10 +101,12 @@ function ShuangSeQiuPage({ onBack }) {
   // 生成智能推荐
   const handleGenerate = () => {
     if (!dataLoaded) { alert('数据未加载，请稍等'); return; }
+    console.log('🚀 开始双色球智能推荐, 模型:', selectedModels, '每组:', groupsPerModel);
     setIsGenerating(true);
     setTimeout(() => {
       try {
         const result = ssqAnalyzer.generateRecommendation(groupsPerModel, selectedModels);
+        console.log('✅ 推荐结果:', result.predictions.length, '组');
         setRecommendation(result);
       } catch (e) {
         console.error('❌ 生成失败:', e);
@@ -110,7 +128,7 @@ function ShuangSeQiuPage({ onBack }) {
       groups.forEach((p, idx) => {
         const redStr = p.red.map(n => n.toString().padStart(2, '0')).join(' ');
         const blueStr = p.blue.map(n => n.toString().padStart(2, '0')).join(' '); 
-        text += `第${idx + 1}组: ${redStr} | +${blueStr}\n`; 
+        text += `第${idx + 1}组: ${redStr} | +${blueStr} (${calcOddEvenRatio(p.red).plainText})\n`;
       });
       text += '\n';
     });
@@ -244,7 +262,7 @@ function ShuangSeQiuPage({ onBack }) {
     },
     {
       title: '蓝球策略',
-      content: '蓝球只有12个号码，命中概率约8.3%。建议关注近期蓝球走势，冷热交替出现。',
+      content: '蓝球只有16个号码，命中概率约6.25%（1/16）。建议关注近期蓝球走势，冷热交替出现。',
       type: 'advanced'
     },
     {
@@ -267,12 +285,17 @@ function ShuangSeQiuPage({ onBack }) {
 
   return (
     <div className="ssq-page">
+      {/* 返回按钮 - 独立区域 */}
+      <div className="ssq-back-bar">
+        <button className="ssq-back-btn-new" onClick={onBack}>
+          <span className="ssq-back-icon">←</span>
+          <span className="ssq-back-text">返回</span>
+        </button>
+      </div>
+
       {/* 页面头部 */}
       <div className="ssq-header">
         <div className="ssq-header-bg"></div>
-        <button className="ssq-back-btn" onClick={onBack}>
-          ← 返回
-        </button>
         <div className="ssq-logo">
           <div className="ssq-ball red-ball-lg">双色球</div>
           <div className="ssq-ball blue-ball-lg">福彩</div>
@@ -346,7 +369,7 @@ function ShuangSeQiuPage({ onBack }) {
           <div className="ssq-section">
             <div className="ssq-card">
               <h2 className="ssq-section-title">开奖号码查询</h2>
-              <p className="ssq-text">共 <strong>{ssqAnalyzer.analyzer.historyData?.length || 0}</strong> 期历史数据</p>
+              <p className="ssq-text">共 <strong>{ssqAnalyzer.dataLoader.historyData?.length || 0}</strong> 期历史数据</p>
             </div>
 
             {/* 最近10期 */}
@@ -635,7 +658,7 @@ function ShuangSeQiuPage({ onBack }) {
                 ⚠️ 推荐号码由算法模型基于历史数据统计分析生成，仅供娱乐参考。彩票开奖为随机事件，任何算法都不能预测中奖号码。理性购彩，量力而行。
               </p>
               <p className="ssq-text" style={{marginTop: '10px'}}>
-                使用与大乐透相同的算法模型，自动适配双色球号码范围（红球1-33选6，蓝球1-16选1）。
+                使用专为双色球设计的9种独立算法（红球1-33选6，蓝球1-16选1），与大乐透算法完全独立，互不影响。
               </p>
             </div>
 
@@ -738,6 +761,7 @@ function ShuangSeQiuPage({ onBack }) {
                             <div className="ssq-group-blue">
                               {p.blue.map(n => n.toString().padStart(2, '0')).join(' ')}
                             </div>
+                            <span className={`ssq-group-oddeven ssq-oddeven-${calcOddEvenRatio(p.red).quality}`}>奇偶 {calcOddEvenRatio(p.red).text}</span>
                           </div>
                         ))}
                       </div>
